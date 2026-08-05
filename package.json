@@ -1,0 +1,33 @@
+{
+  "name": "bearai-todoai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"npm:dev:electron\"",
+    "dev:electron": "wait-on tcp:5173 && electron .",
+    "build": "vue-tsc --noEmit && vite build && tsc -p electron/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "vue-tsc --noEmit && tsc -p electron/tsconfig.json",
+    "start": "electron ."
+  },
+  "main": "dist-electron/electron/main.js",
+  "dependencies": {
+    "@vueuse/core": "^13.6.0",
+    "gray-matter": "^4.0.3",
+    "vue": "^3.5.18",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "concurrently": "^9.2.0",
+    "electron": "^37.2.6",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1",
+    "vitest": "^3.2.4",
+    "vue-tsc": "^3.0.5",
+    "wait-on": "^8.0.4"
+  }
+}
