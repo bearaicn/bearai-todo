@@ -1,3 +1,8 @@
 import type { Task } from './domain/task'
-declare global { interface Window { bearTodo?: { listTasks():Promise<Task[]>; createTask(title:string):Promise<Task>; saveTask(task:Task, expectedRevision:number):Promise<Task> } } }
+import type { ListGroup, TodoList } from './domain/list'
+declare global { interface Window { bearTodo?: {
+  listTasks():Promise<Task[]>; createTask(title:string,listId?:string):Promise<Task>; saveTask(task:Task,expectedRevision:number):Promise<Task>
+  listLists():Promise<TodoList[]>; createList(name:string,groupId?:string|null):Promise<TodoList>; saveList(list:TodoList,expectedRevision:number):Promise<TodoList>; archiveList(list:TodoList):Promise<TodoList>
+  listGroups():Promise<ListGroup[]>; createGroup(name:string):Promise<ListGroup>; saveGroup(group:ListGroup,expectedRevision:number):Promise<ListGroup>; archiveGroup(group:ListGroup):Promise<ListGroup>
+} } }
 export {}

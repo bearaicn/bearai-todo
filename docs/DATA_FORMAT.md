@@ -41,5 +41,19 @@ completedAt: null
 
 `myDay` 记录加入日期；智能列表只匹配今天，因此每日自然重置，不修改或删除任务。重复任务在当前实例完成后创建新 UUID 的下一实例，并通过 `seriesId`/`previousId` 串联；不会偷偷把已完成文件改成未完成。
 
-列表和组同样使用 `schema`、UUID、revision、名称、排序和归档字段。`inbox` 是受保护的逻辑默认列表。格式升级必须先备份、逐文件迁移且可重复运行。
+## 列表与列表组 v1
 
+列表文件使用 `schema: bearai.todo/list@1`，包含 `id`、`revision`、`name`、可空 `groupId`、整数 `order`、`archived`、`createdAt` 和 `updatedAt`。列表组使用 `schema: bearai.todo/group@1`，包含相同的身份、排序与归档字段，以及 `collapsed`。
+
+列表和组均保留未知 frontmatter 字段。`inbox` 是受保护的逻辑默认列表，不需要可被外部误删的元数据文件。删除操作在 v1 中实现为 `archived: true`，不物理删除文件；归档组不会级联归档成员列表，应用会把成员移出该组。未来恢复中心通过读取包含归档项的仓储视图实现恢复。
+
+## 智能列表语义
+
+- 我的⼀天：`status: active` 且 `myDay` 等于当前本地日期。
+- 重要：活动任务且 `important: true`。
+- 计划内：活动任务且具有 `due`。
+- 全部：全部活动任务。
+- 已完成：`status: completed`；恢复后重新进入活动视图。
+- 任务：活动任务且 `listId: inbox`。
+
+格式升级必须先备份、逐文件迁移且可重复运行。
