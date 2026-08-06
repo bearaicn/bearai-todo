@@ -3,7 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('bearTodo', {
   health: () => ipcRenderer.invoke('app:health'),
   listTasks: () => ipcRenderer.invoke('tasks:list'),
-  createTask: (title, listId = 'inbox') => ipcRenderer.invoke('tasks:create', title, listId),
+  createTask: (title, listId = 'inbox', parentId = null) => ipcRenderer.invoke('tasks:create', title, listId, parentId),
   saveTask: (task, expectedRevision) => ipcRenderer.invoke('tasks:save', task, expectedRevision),
   listLists: () => ipcRenderer.invoke('lists:list'),
   createList: (name, groupId = null) => ipcRenderer.invoke('lists:create', name, groupId),
@@ -17,4 +17,3 @@ contextBridge.exposeInMainWorld('bearTodo', {
   toggleMaximizeWindow: () => ipcRenderer.send('window:toggle-maximize'),
   closeWindow: () => ipcRenderer.send('window:close')
 })
-

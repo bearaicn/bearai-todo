@@ -14,9 +14,9 @@ export class TaskRepository {
     const tasks = await Promise.all(names.map(name => readFile(join(directory, name), 'utf8').then(parseTask)))
     return tasks.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   }
-  async create(title: string, listId = 'inbox'): Promise<Task> {
+  async create(title: string, listId = 'inbox', parentId:string|null=null): Promise<Task> {
     const now = new Date().toISOString()
-    const task: Task = { schema:'bearai.todo/task@1', id:randomUUID(), revision:1, title, listId, status:'active', important:false, tags:[], steps:[], attachments:[], createdAt:now, updatedAt:now, note:'', extra:{} }
+    const task: Task = { schema:'bearai.todo/task@1', id:randomUUID(), revision:1, title, listId, parentId, status:'active', important:false, tags:[], attachments:[], createdAt:now, updatedAt:now, note:'', extra:{} }
     await this.atomicWrite(this.path(task.id), serializeTask(task)); return task
   }
   async save(task: Task, expectedRevision: number): Promise<Task> {

@@ -1,8 +1,8 @@
 {
-  "task": "修复分组无响应、任务未落盘、原生标题栏和空详情列",
-  "status": "in-progress-runtime-fix-implemented",
-  "filesModified": ["electron/main.ts", "electron/preload.cjs", "src/App.vue", "src/style.css", "vite.config.ts", "package.json", "README.md", "docs/IMPLEMENTATION.md"],
-  "validation": { "unitTests": "12/12 pass across 3 files", "typecheck": "pass", "build": "pass", "electronSmoke": "pass: bridge health, groupPersisted and taskPersisted true", "visual": "real Electron screenshot pass for frameless titlebar, rendered production assets and no empty detail column", "diffCheck": "pass" },
-  "timestamp": "2026-08-06T20:31:00+08:00",
-  "nextSteps": ["继续截止日期、提醒和重复领域语义与UI", "扩展隔离端到端验收数据"]
+  "task": "把嵌入 steps 改为独立 Markdown 子任务",
+  "status": "in-progress-child-task-implemented",
+  "filesModified": ["CONTEXT.md", "docs/adr/", "docs/DATA_FORMAT.md", "docs/IMPLEMENTATION.md", "src/domain/", "src/infrastructure/", "src/App.vue", "electron/", "tests/"],
+  "validation": { "unitTests": "13/13 pass across 3 files", "typecheck": "pass", "build": "pass", "electronSmoke": "pass: parent task and child task persisted with parentId", "diffCheck": "pass" },
+  "timestamp": "2026-08-06T21:16:00+08:00",
+  "nextSteps": ["在工作目录和项目文件夹v2迁移中转换旧steps", "让子任务完整编辑日期提醒重复和备注"]
 }

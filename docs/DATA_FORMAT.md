@@ -30,7 +30,7 @@ due: 2026-08-06
 reminder: 2026-08-06T09:00:00+08:00
 repeat: { frequency: weekly, interval: 1 }
 tags: [工作]
-steps: [{ id: 6ea..., title: 第一步, completed: false }]
+parentId: null
 attachments: []
 createdAt: 2026-08-05T10:00:00+08:00
 updatedAt: 2026-08-05T10:00:00+08:00
@@ -38,6 +38,8 @@ completedAt: null
 ---
 这里是备注正文。未知 frontmatter 字段和正文必须保留。
 ```
+
+子任务也是独立任务文件，通过 `parentId: <父任务UUID>` 关联直接父任务。顶层任务使用 `parentId: null`。子任务不嵌入父任务的 `steps`；旧 `steps` 只作为待迁移兼容字段读取，task@2 迁移会为每个旧步骤创建独立任务文件。
 
 `myDay` 记录加入日期；智能列表只匹配今天，因此每日自然重置，不修改或删除任务。重复任务在当前实例完成后创建新 UUID 的下一实例，并通过 `seriesId`/`previousId` 串联；不会偷偷把已完成文件改成未完成。
 

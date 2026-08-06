@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import type { Task, TaskStep } from './domain/task'
+import type { Task } from './domain/task'
 import type { ListGroup, TodoList } from './domain/list'
-import { localDateKey, myDaySuggestions, queryTasks } from './domain/taskQueries'
+import { childTasks, localDateKey, myDaySuggestions, queryTasks } from './domain/taskQueries'
 
 const tasks=ref<Task[]>([]),lists=ref<TodoList[]>([]),groups=ref<ListGroup[]>([]),selected=ref<Task>()
-const view=ref('inbox'),draft=ref(''),newListName=ref(''),newGroupName=ref(''),stepDraft=ref(''),search=ref(''),error=ref('')
+const view=ref('inbox'),draft=ref(''),newListName=ref(''),newGroupName=ref(''),childDraft=ref(''),search=ref(''),error=ref('')
 const smart=[{id:'my-day',icon:'☀',name:'我的一天'},{id:'important',icon:'★',name:'重要'},{id:'planned',icon:'▣',name:'计划内'},{id:'all',icon:'∞',name:'全部'},{id:'completed',icon:'✓',name:'已完成'}]
 const viewName=computed(()=>smart.find(item=>item.id===view.value)?.name??(view.value==='inbox'?'任务':lists.value.find(item=>item.id===view.value)?.name??'列表'))
-const shown=computed(()=>{const result=queryTasks(tasks.value,view.value);const term=search.value.trim().toLocaleLowerCase();return term?result.filter(task=>[task.title,task.note,...task.tags,...task.steps.map(step=>step.title)].some(value=>value.toLocaleLowerCase().includes(term))):result})
+const shown=computed(()=>{const result=queryTasks(tasks.value,view.value);const term=search.value.trim().toLocaleLowerCase();return term?result.filter(task=>[task.title,task.note,...task.tags,...childTasks(tasks.value,task.id).map(child=>child.title)].some(value=>value.toLocaleLowerCase().includes(term))):result})
 const suggestions=computed(()=>myDaySuggestions(tasks.value).slice(0,5))
+const children=computed(()=>selected.value?childTasks(tasks.value,selected.value.id):[])
 const ungrouped=computed(()=>lists.value.filter(item=>!item.groupId));const grouped=(id:string)=>lists.value.filter(item=>item.groupId===id)
 
 function bridge(){if(!window.bearTodo)throw new Error('本地存储服务未连接，请重新启动应用');return window.bearTodo}
@@ -27,10 +28,8 @@ async function renameGroup(item:ListGroup){const name=window.prompt('列表组�
 async function archiveGroup(item:ListGroup){if(!window.bearTodo||!window.confirm(`归档组“${item.name}”？组内列表不会被归档。`))return;await window.bearTodo.archiveGroup(item);groups.value=groups.value.filter(value=>value.id!==item.id);for(const list of lists.value.filter(value=>value.groupId===item.id)){Object.assign(list,await window.bearTodo.saveList({...list,groupId:null},list.revision))}}
 async function moveGroup(item:ListGroup,direction:number){const peers=[...groups.value].sort((a,b)=>a.order-b.order);const index=peers.findIndex(value=>value.id===item.id),other=peers[index+direction];if(!other||!window.bearTodo)return;const order=item.order;Object.assign(item,await window.bearTodo.saveGroup({...item,order:other.order},item.revision));Object.assign(other,await window.bearTodo.saveGroup({...other,order},other.revision))}
 async function moveList(item:TodoList,direction:number){const peers=lists.value.filter(value=>value.groupId===item.groupId).sort((a,b)=>a.order-b.order);const index=peers.findIndex(value=>value.id===item.id),other=peers[index+direction];if(!other||!window.bearTodo)return;const order=item.order;Object.assign(item,await window.bearTodo.saveList({...item,order:other.order},item.revision));Object.assign(other,await window.bearTodo.saveList({...other,order},other.revision))}
-async function addStep(){if(!selected.value||!stepDraft.value.trim())return;const step:TaskStep={id:crypto.randomUUID(),title:stepDraft.value.trim(),completed:false};await save(selected.value,{steps:[...selected.value.steps,step]});stepDraft.value=''}
-async function renameStep(step:TaskStep){if(!selected.value)return;const title=window.prompt('步骤名称',step.title)?.trim();if(title)await save(selected.value,{steps:selected.value.steps.map(value=>value.id===step.id?{...value,title}:value)})}
-async function toggleStep(step:TaskStep){if(selected.value)await save(selected.value,{steps:selected.value.steps.map(value=>value.id===step.id?{...value,completed:!value.completed}:value)})}
-async function removeStep(step:TaskStep){if(selected.value&&window.confirm(`删除步骤“${step.title}”？`))await save(selected.value,{steps:selected.value.steps.filter(value=>value.id!==step.id)})}
+async function addChildTask(){const parent=selected.value,title=childDraft.value.trim();if(!parent||!title)return;try{const child=await bridge().createTask(title,parent.listId,parent.id);tasks.value.push(child);childDraft.value='';error.value=''}catch(reason){error.value=message(reason)}}
+async function renameChild(child:Task){const title=window.prompt('子任务名称',child.title)?.trim();if(title)await save(child,{title})}
 function message(reason:unknown){return reason instanceof Error?reason.message:'操作失败，请重新加载'}
 onMounted(load)
 </script>
@@ -47,6 +46,6 @@ onMounted(load)
     <div class="cards"><article v-for="task in shown" :key="task.id" @click="selected=task" :class="{active:selected?.id===task.id}"><button class="circle" :class="{done:task.status==='completed'}" :aria-label="task.status==='completed'?'恢复任务':'完成任务'" @click.stop="toggleDone(task)">{{task.status==='completed'?'✓':''}}</button><div><strong :class="{strike:task.status==='completed'}">{{task.title}}</strong><small>{{task.tags.map(tag=>'#'+tag).join(' ')||'任务'}}</small></div><button class="star" :aria-label="task.important?'取消重要':'标记重要'" @click.stop="save(task,{important:!task.important})">{{task.important?'★':'☆'}}</button></article><div v-if="!shown.length" class="empty"><b>{{search?'没有匹配结果':'这里还没有任务'}}</b><span>{{search?'尝试其他标题、标签或步骤关键词':'从添加一件小事开始'}}</span></div></div>
   </section>
   <aside v-if="selected" class="detail" aria-label="任务详情"><div class="task-title"><button class="circle" :class="{done:selected.status==='completed'}" @click="toggleDone(selected)">{{selected.status==='completed'?'✓':''}}</button><input v-model="selected.title" @change="save(selected,{title:selected.title})" aria-label="任务标题"/><button class="star" @click="save(selected,{important:!selected.important})">{{selected.important?'★':'☆'}}</button></div>
-    <div class="steps"><div v-for="step in selected.steps" :key="step.id"><button class="circle" :class="{done:step.completed}" @click="toggleStep(step)">{{step.completed?'✓':''}}</button><button class="step-name" :class="{strike:step.completed}" @dblclick="renameStep(step)">{{step.title}}</button><button title="删除步骤" @click="removeStep(step)">×</button></div><form @submit.prevent="addStep"><input v-model="stepDraft" placeholder="添加步骤" aria-label="步骤名称"/><button>＋</button></form></div>
+    <div class="steps" aria-label="子任务"><div v-for="child in children" :key="child.id"><button class="circle" :class="{done:child.status==='completed'}" :aria-label="child.status==='completed'?'恢复子任务':'完成子任务'" @click="toggleDone(child)">{{child.status==='completed'?'✓':''}}</button><button class="step-name" :class="{strike:child.status==='completed'}" @dblclick="renameChild(child)">{{child.title}}</button><button class="star" :aria-label="child.important?'取消收藏':'收藏子任务'" @click="save(child,{important:!child.important})">{{child.important?'★':'☆'}}</button></div><form @submit.prevent="addChildTask"><input v-model="childDraft" placeholder="添加子任务" aria-label="子任务名称"/><button>＋</button></form></div>
     <button @click="save(selected,{myDay:selected.myDay===localDateKey()?null:localDateKey()})">☀ {{selected.myDay===localDateKey()?'从“我的一天”移除':'加入“我的一天”'}}</button><button disabled title="下一批实现">◷ 提醒我</button><button disabled title="下一批实现">▣ 添加截止日期</button><button disabled title="下一批实现">↻ 重复</button><textarea v-model="selected.note" @change="save(selected,{note:selected.note})" placeholder="添加备注"></textarea><small>创建于 {{new Date(selected.createdAt).toLocaleDateString()}}</small></aside>
 </main></template>
