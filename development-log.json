@@ -1,8 +1,8 @@
 {
-  "task": "把嵌入 steps 改为独立 Markdown 子任务",
-  "status": "in-progress-child-task-implemented",
-  "filesModified": ["CONTEXT.md", "docs/adr/", "docs/DATA_FORMAT.md", "docs/IMPLEMENTATION.md", "src/domain/", "src/infrastructure/", "src/App.vue", "electron/", "tests/"],
-  "validation": { "unitTests": "13/13 pass across 3 files", "typecheck": "pass", "build": "pass", "electronSmoke": "pass: parent task and child task persisted with parentId", "diffCheck": "pass" },
-  "timestamp": "2026-08-06T21:16:00+08:00",
-  "nextSteps": ["在工作目录和项目文件夹v2迁移中转换旧steps", "让子任务完整编辑日期提醒重复和备注"]
+  "task": "移除左侧导航重复Logo",
+  "status": "in-progress-nav-logo-implemented",
+  "filesModified": ["src/App.vue"],
+  "validation": { "unitTests": "13/13 pass", "typecheck": "pass", "build": "pass" },
+  "timestamp": "2026-08-06T22:24:00+08:00",
+  "nextSteps": ["继续工作目录和项目文件夹v2迁移"]
 }
