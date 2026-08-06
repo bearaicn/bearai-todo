@@ -1,16 +1,16 @@
 {
-  "task": "实现项目树、账号菜单、项目属性主题和子任务列表交互",
-  "status": "in-progress-project-interaction-batch-implemented",
+  "task": "修复项目主题批次引入的 CSS Grid 主布局回归",
+  "status": "in-progress-main-layout-regression-fixed",
   "filesModified": ["src/App.vue", "src/style.css", "src/domain/project.ts", "src/infrastructure/settingsRepository.ts", "src/infrastructure/workspaceRepository.ts", "electron/", "tests/", "README.md", "docs/"],
   "validation": {
     "unitTests": "18/18 pass across 3 files",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: subproject creation, project properties, account menu, settings, hidden empty detail",
-    "visual": "real Electron 1600x1000 screenshot inspected: frosted green theme and settings layout pass",
+    "electronUiSmoke": "pass: includes runtime geometry assertions for full-height sidebar, full-width list, zero body overflow and hidden empty detail",
+    "visual": "real Electron main and selected-task screenshots inspected separately after fix",
     "migration": "pass: copied content verified and original directory removed",
     "projectPersistence": "pass: appearance, collapse and physical move survive repository reload"
   },
-  "timestamp": "2026-08-06T23:43:00+08:00",
+  "timestamp": "2026-08-07T00:06:00+08:00",
   "nextSteps": ["实现截止日期、提醒和重复领域语义", "实现附件安全路径与外部编辑冲突界面", "准备 Windows 安装包和完整验收数据闭环"]
 }
