@@ -1,61 +1,62 @@
-# Markdown 数据格式 v1
+# 工作目录与数据格式 v2
 
-## 目录
+## 目录结构
 
 ```text
-data/
-  manifest.md
-  lists/<list-uuid>.md
-  groups/<group-uuid>.md
-  tasks/<task-uuid>.md
-  attachments/<task-uuid>/<attachment-uuid>-原文件名
+工作目录/
+  .bearai-workspace.json
+  任务/
+    .bearai-project.json
+    第一件事--550e8400.md
+  工作/
+    .bearai-project.json
+    BearAI/
+      .bearai-project.json
+      发布版本--6ba7b810.md
+  .attachments/<task-uuid>/
+  .archive/projects/<project-uuid>/
   .recovery/
 ```
 
-一任务一文件，降低外部编辑与未来同步的冲突面。所有 ID 为 UUID。日期时间使用 ISO 8601；纯日期使用 `YYYY-MM-DD`，按本地时区解释。
+工作目录是全部业务数据的边界，不使用数据库。`.bearai-workspace.json` 使用 `bearai.todo/workspace@1`，保存稳定 `workspaceId`、revision、名称和可从任务 Markdown 重建的统计。统计不是业务权威。
 
-## 任务 v1
+## 项目与子项目
+
+项目是带 `.bearai-project.json` 的真实文件夹；子项目是嵌套项目文件夹，不是另一种实体。项目配置使用 `bearai.todo/project@1`，包含稳定 `projectId`、revision、name、parentId、order、archived 和时间。目录位置表示当前结构，ID 表示身份。
+
+项目右键支持新增子项目、重命名和归档。归档把整个目录原子移动到 `.archive/projects/<projectId>`，不物理删除。项目或子项目改名不改变 ID。
+
+## 任务与子任务
+
+任务使用一任务一 Markdown 文件，文件名为 `<可读标题>--<UUID前8位>.md`，frontmatter 使用 `bearai.todo/task@2`：
 
 ```markdown
 ---
-schema: bearai.todo/task@1
+schema: bearai.todo/task@2
 id: 550e8400-e29b-41d4-a716-446655440000
 revision: 1
 title: 示例任务
-listId: inbox
-status: active
-important: false
-myDay: 2026-08-05
-due: 2026-08-06
-reminder: 2026-08-06T09:00:00+08:00
-repeat: { frequency: weekly, interval: 1 }
-tags: [工作]
+projectId: 51e58eb6-082a-46dc-80e4-65fb32c49a52
 parentId: null
+status: active
+favorite: false
+due: null
+reminder: null
+repeat: null
+tags: []
 attachments: []
-createdAt: 2026-08-05T10:00:00+08:00
-updatedAt: 2026-08-05T10:00:00+08:00
+createdAt: 2026-08-06T10:00:00+08:00
+updatedAt: 2026-08-06T10:00:00+08:00
 completedAt: null
 ---
-这里是备注正文。未知 frontmatter 字段和正文必须保留。
+备注正文。
 ```
 
-子任务也是独立任务文件，通过 `parentId: <父任务UUID>` 关联直接父任务。顶层任务使用 `parentId: null`。子任务不嵌入父任务的 `steps`；旧 `steps` 只作为待迁移兼容字段读取，task@2 迁移会为每个旧步骤创建独立任务文件。
+项目归属以文件所在目录为最终依据；`projectId` 用于冲突检测和外部移动后的重建校验。子任务也是独立 Markdown，通过 `parentId` 指向父任务。旧 task@1 的 `listId`、`important`、`myDay` 和 `steps` 只用于迁移：`important` 映射为 `favorite`，旧 steps 转为独立子任务文件，未知字段和正文必须保留。
 
-`myDay` 记录加入日期；智能列表只匹配今天，因此每日自然重置，不修改或删除任务。重复任务在当前实例完成后创建新 UUID 的下一实例，并通过 `seriesId`/`previousId` 串联；不会偷偷把已完成文件改成未完成。
+## 智能视图
 
-## 列表与列表组 v1
-
-列表文件使用 `schema: bearai.todo/list@1`，包含 `id`、`revision`、`name`、可空 `groupId`、整数 `order`、`archived`、`createdAt` 和 `updatedAt`。列表组使用 `schema: bearai.todo/group@1`，包含相同的身份、排序与归档字段，以及 `collapsed`。
-
-列表和组均保留未知 frontmatter 字段。`inbox` 是受保护的逻辑默认列表，不需要可被外部误删的元数据文件。删除操作在 v1 中实现为 `archived: true`，不物理删除文件；归档组不会级联归档成员列表，应用会把成员移出该组。未来恢复中心通过读取包含归档项的仓储视图实现恢复。
-
-## 智能列表语义
-
-- 我的⼀天：`status: active` 且 `myDay` 等于当前本地日期。
-- 重要：活动任务且 `important: true`。
-- 计划内：活动任务且具有 `due`。
-- 全部：全部活动任务。
-- 已完成：`status: completed`；恢复后重新进入活动视图。
-- 任务：活动任务且 `listId: inbox`。
-
-格式升级必须先备份、逐文件迁移且可重复运行。
+- 今日待办：全部未完成顶层任务。
+- 收藏：`favorite: true` 的未完成顶层任务。
+- 计划内：具有截止日期的未完成顶层任务。
+- 已完成：全部已完成顶层任务，可恢复。

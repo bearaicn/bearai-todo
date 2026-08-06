@@ -6,9 +6,11 @@ Electron + Vue 3 + TypeScript + Vite。选择理由是 Windows 桌面集成成�
 
 ## 边界
 
-`domain` 定义任务模型与命令；`infrastructure` 实现 Markdown 仓储、原子写入和未来文件监听；Electron 主进程组成服务并暴露 IPC；Vue 只持有视图状态。业务源为 `data/` 下 Markdown 和附件。设置将来可使用 SQLite，但只能保存窗口、主题和偏好。
+`domain` 定义工作目录、项目和任务模型；`infrastructure` 实现 JSON/Markdown 仓储、原子写入和未来文件监听；Electron 主进程组成服务并暴露 IPC；Vue 只持有视图状态。业务源为用户工作目录下的项目文件夹、Markdown、JSON 和附件。
 
-首期没有持久化业务索引。未来若增加搜索索引，必须标为可删除缓存，并提供从 Markdown 全量重建与一致性测试。
+MVP 完全不使用数据库。工作区全局配置和可重建统计位于 `.bearai-workspace.json`，项目配置位于各项目文件夹的 `.bearai-project.json`，本机窗口状态未来保存为 `%APPDATA%/BearAI ToDo/settings.json`。若未来出现 SQLite，只能作为可删除、可重建索引，不能成为权威数据源。
+
+首期没有持久化业务索引。根配置中的数量统计由扫描任务 Markdown 重建，不参与具体业务判断。未来若增加搜索索引，必须标为可删除缓存，并提供从 Markdown 全量重建与一致性测试。
 
 ## 并发与恢复
 
@@ -17,4 +19,3 @@ Electron + Vue 3 + TypeScript + Vite。选择理由是 Windows 桌面集成成�
 ## 同步预留
 
 未来 `SyncAdapter` 只交换带稳定 UUID/revision/updatedAt 的文档快照，不绕过仓储。冲突先保留双方副本，再由用户合并；云端不是本地 Markdown 的隐藏替代权威。
-

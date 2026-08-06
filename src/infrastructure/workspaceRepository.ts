@@ -1,0 +1,26 @@
+import { mkdir, open, readFile, readdir, rename, stat } from 'node:fs/promises'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import type { Project, WorkspaceConfig } from '../domain/project.js'
+
+const WORKSPACE_FILE='.bearai-workspace.json',PROJECT_FILE='.bearai-project.json'
+function safeName(value:string){const name=value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]/g,'-').replace(/[. ]+$/g,'');if(!name)throw new Error('项目名称不能为空');return name}
+async function atomicJson(path:string,value:unknown){await mkdir(dirname(path),{recursive:true});const temp=`${path}.${randomUUID()}.tmp`;const handle=await open(temp,'wx');try{await handle.writeFile(`${JSON.stringify(value,null,2)}\n`,'utf8');await handle.sync()}finally{await handle.close()}await rename(temp,path)}
+export class WorkspaceRepository {
+  constructor(readonly root:string){}
+  async initialize(name='熊智ToDo工作目录'){await mkdir(this.root,{recursive:true});const path=join(this.root,WORKSPACE_FILE);try{return JSON.parse(await readFile(path,'utf8')) as WorkspaceConfig}catch{const now=new Date().toISOString();const value:WorkspaceConfig={schema:'bearai.todo/workspace@1',workspaceId:randomUUID(),revision:1,name,createdAt:now,updatedAt:now,statistics:{activeTasks:0,completedTasks:0,rebuiltAt:null}};await atomicJson(path,value);return value}}
+  async read(){return JSON.parse(await readFile(join(this.root,WORKSPACE_FILE),'utf8')) as WorkspaceConfig}
+  async updateStatistics(activeTasks:number,completedTasks:number){const current=await this.read();const next={...current,revision:current.revision+1,updatedAt:new Date().toISOString(),statistics:{activeTasks,completedTasks,rebuiltAt:new Date().toISOString()}};await atomicJson(join(this.root,WORKSPACE_FILE),next);return next}
+}
+export class ProjectRepository {
+  constructor(readonly root:string){}
+  async initialize(){await new WorkspaceRepository(this.root).initialize();const projects=await this.list();if(!projects.length)await this.create('任务',null);return this.list()}
+  async list():Promise<Project[]>{await mkdir(this.root,{recursive:true});const result:Project[]=[];await this.walk(this.root,result);return result.sort((a,b)=>a.order-b.order||a.name.localeCompare(b.name))}
+  private async walk(directory:string,result:Project[]){for(const entry of await readdir(directory,{withFileTypes:true})){if(!entry.isDirectory()||entry.name.startsWith('.'))continue;const folder=join(directory,entry.name),config=join(folder,PROJECT_FILE);try{const value=JSON.parse(await readFile(config,'utf8'));result.push({...value,relativePath:relative(this.root,folder)})}catch{}await this.walk(folder,result)}}
+  async create(name:string,parentId:string|null){const projects=await this.list();const parent=parentId?projects.find(item=>item.projectId===parentId):null;if(parentId&&!parent)throw new Error('父项目不存在');const folder=this.uniqueFolder(parent?join(this.root,parent.relativePath):this.root,safeName(name),projects);const now=new Date().toISOString();const value:Project={schema:'bearai.todo/project@1',projectId:randomUUID(),revision:1,name:name.trim(),parentId,order:projects.filter(item=>item.parentId===parentId).length,archived:false,createdAt:now,updatedAt:now,relativePath:relative(this.root,folder)};await mkdir(folder,{recursive:false});await atomicJson(join(folder,PROJECT_FILE),this.persisted(value));return value}
+  async rename(projectId:string,name:string){const project=await this.get(projectId),source=join(this.root,project.relativePath),target=join(dirname(source),safeName(name));if(resolve(source)!==resolve(target)){try{await stat(target);throw new Error('同级项目名称已存在')}catch(error){if(error instanceof Error&&error.message==='同级项目名称已存在')throw error}await rename(source,target)}const next={...project,name:name.trim(),relativePath:relative(this.root,target),revision:project.revision+1,updatedAt:new Date().toISOString()};await atomicJson(join(target,PROJECT_FILE),this.persisted(next));return next}
+  async archive(projectId:string){const project=await this.get(projectId),source=join(this.root,project.relativePath),target=join(this.root,'.archive','projects',project.projectId);await mkdir(dirname(target),{recursive:true});await rename(source,target);const next={...project,archived:true,relativePath:relative(this.root,target),revision:project.revision+1,updatedAt:new Date().toISOString()};await atomicJson(join(target,PROJECT_FILE),this.persisted(next));return next}
+  async get(projectId:string){const project=(await this.list()).find(item=>item.projectId===projectId);if(!project)throw new Error('项目不存在');return project}
+  private persisted({relativePath,...value}:Project){return value}
+  private uniqueFolder(parent:string,name:string,projects:Project[]){let target=join(parent,name),index=2;const paths=new Set(projects.map(item=>resolve(this.root,item.relativePath).toLocaleLowerCase()));while(paths.has(resolve(target).toLocaleLowerCase()))target=join(parent,`${name} (${index++})`);if(!resolve(target).startsWith(resolve(this.root)+sep))throw new Error('项目路径越界');return target}
+}

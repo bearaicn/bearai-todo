@@ -1,8 +1,8 @@
 {
-  "task": "移除左侧导航重复Logo",
-  "status": "in-progress-nav-logo-implemented",
-  "filesModified": ["src/App.vue"],
-  "validation": { "unitTests": "13/13 pass", "typecheck": "pass", "build": "pass" },
-  "timestamp": "2026-08-06T22:24:00+08:00",
-  "nextSteps": ["继续工作目录和项目文件夹v2迁移"]
+  "task": "迁移到工作目录、项目/子项目文件夹和task@2",
+  "status": "in-progress-workspace-v2-implemented",
+  "filesModified": ["src/domain/", "src/infrastructure/", "src/App.vue", "electron/", "tests/", "README.md", "docs/"],
+  "validation": { "unitTests": "14/14 pass across 3 files", "typecheck": "pass", "build": "pass", "electronSmoke": "pass: workspace, project, child project, task and child task persisted", "visual": "real Electron pass for v2 navigation, project tree and three-item context menu", "externalMove": "pass: containing project folder overrides stale projectId", "diffCheck": "pass" },
+  "timestamp": "2026-08-06T22:44:00+08:00",
+  "nextSteps": ["实现旧数据事务迁移与工作目录选择", "实现文件监听和项目恢复中心"]
 }

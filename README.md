@@ -4,7 +4,7 @@ Windows 优先、本地优先的 Markdown 待办应用。任务、列表、步�
 
 ## 当前状态
 
-MVP 持续开发中：已建立 v1 数据格式、任务/列表/列表组 Markdown 仓储、原子写入与 revision 冲突保护、六类智能列表、搜索、步骤和三栏 Electron 界面。新增、读取、完成/恢复、重要、我的一天、标题、备注及步骤已形成真实持久化闭环。详见 [实施进度](docs/IMPLEMENTATION.md)。
+MVP 持续开发中：已建立根工作目录、项目/子项目文件夹、task@2 Markdown 仓储、原子写入与 revision 冲突保护，以及今日待办、收藏、计划内、已完成和三栏 Electron 界面。项目配置使用 JSON，任务与子任务使用独立 Markdown；MVP 不使用数据库。详见 [实施进度](docs/IMPLEMENTATION.md)。
 
 ```powershell
 npm install
