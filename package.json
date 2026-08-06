@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"npm:dev:electron\"",
-    "dev:electron": "wait-on tcp:5173 && electron .",
+    "dev:electron": "wait-on tcp:5173 && electron . --dev",
+    "smoke:electron": "electron . --smoke",
     "build": "vue-tsc --noEmit && vite build && tsc -p electron/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",

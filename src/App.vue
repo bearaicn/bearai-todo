@@ -12,13 +12,14 @@ const shown=computed(()=>{const result=queryTasks(tasks.value,view.value);const 
 const suggestions=computed(()=>myDaySuggestions(tasks.value).slice(0,5))
 const ungrouped=computed(()=>lists.value.filter(item=>!item.groupId));const grouped=(id:string)=>lists.value.filter(item=>item.groupId===id)
 
-async function load(){if(!window.bearTodo)return;[tasks.value,lists.value,groups.value]=await Promise.all([window.bearTodo.listTasks(),window.bearTodo.listLists(),window.bearTodo.listGroups()])}
-async function add(){const title=draft.value.trim();if(!title)return;const listId=lists.value.some(item=>item.id===view.value)?view.value:'inbox';const task=window.bearTodo?await window.bearTodo.createTask(title,listId):mock(title,listId);tasks.value.unshift(task);draft.value='';selected.value=task}
-async function save(task:Task,patch:Partial<Task>){error.value='';const original=task.revision;Object.assign(task,patch);try{Object.assign(task,window.bearTodo?await window.bearTodo.saveTask(task,original):{...task,revision:original+1})}catch(reason){error.value=message(reason);await load()}}
+function bridge(){if(!window.bearTodo)throw new Error('本地存储服务未连接，请重新启动应用');return window.bearTodo}
+async function load(){try{const api=bridge();await api.health();[tasks.value,lists.value,groups.value]=await Promise.all([api.listTasks(),api.listLists(),api.listGroups()]);error.value=''}catch(reason){error.value=message(reason)}}
+async function add(){const title=draft.value.trim();if(!title)return;try{const listId=lists.value.some(item=>item.id===view.value)?view.value:'inbox';const task=await bridge().createTask(title,listId);tasks.value.unshift(task);draft.value='';selected.value=task;error.value=''}catch(reason){error.value=message(reason)}}
+async function save(task:Task,patch:Partial<Task>){error.value='';const original=task.revision;Object.assign(task,patch);try{Object.assign(task,await bridge().saveTask(task,original))}catch(reason){error.value=message(reason);await load()}}
 async function toggleDone(task:Task){await save(task,{status:task.status==='completed'?'active':'completed',completedAt:task.status==='completed'?null:new Date().toISOString()})}
-async function createList(groupId:string|null=null){const name=newListName.value.trim();if(!name||!window.bearTodo)return;lists.value.push(await window.bearTodo.createList(name,groupId));newListName.value=''}
+async function createList(groupId:string|null=null){const name=newListName.value.trim();if(!name)return;try{lists.value.push(await bridge().createList(name,groupId));newListName.value='';error.value=''}catch(reason){error.value=message(reason)}}
 async function createListInGroup(groupId:string){const name=window.prompt('新列表名称')?.trim();if(name&&window.bearTodo)lists.value.push(await window.bearTodo.createList(name,groupId))}
-async function createGroup(){const name=newGroupName.value.trim();if(!name||!window.bearTodo)return;groups.value.push(await window.bearTodo.createGroup(name));newGroupName.value=''}
+async function createGroup(){const name=newGroupName.value.trim();if(!name)return;try{groups.value.push(await bridge().createGroup(name));newGroupName.value='';error.value=''}catch(reason){error.value=message(reason)}}
 async function toggleGroup(item:ListGroup){if(!window.bearTodo)return;Object.assign(item,await window.bearTodo.saveGroup({...item,collapsed:!item.collapsed},item.revision))}
 async function renameList(item:TodoList){const name=window.prompt('列表名称',item.name)?.trim();if(!name||!window.bearTodo)return;Object.assign(item,await window.bearTodo.saveList({...item,name},item.revision))}
 async function archiveList(item:TodoList){if(!window.bearTodo||!window.confirm(`归档“${item.name}”？任务不会删除，可在恢复中心恢复列表。`))return;await window.bearTodo.archiveList(item);lists.value=lists.value.filter(value=>value.id!==item.id);if(view.value===item.id)view.value='inbox'}
@@ -31,11 +32,10 @@ async function renameStep(step:TaskStep){if(!selected.value)return;const title=w
 async function toggleStep(step:TaskStep){if(selected.value)await save(selected.value,{steps:selected.value.steps.map(value=>value.id===step.id?{...value,completed:!value.completed}:value)})}
 async function removeStep(step:TaskStep){if(selected.value&&window.confirm(`删除步骤“${step.title}”？`))await save(selected.value,{steps:selected.value.steps.filter(value=>value.id!==step.id)})}
 function message(reason:unknown){return reason instanceof Error?reason.message:'操作失败，请重新加载'}
-function mock(title:string,listId:string):Task{const now=new Date().toISOString();return{schema:'bearai.todo/task@1',id:crypto.randomUUID(),revision:1,title,listId,status:'active',important:false,tags:[],steps:[],attachments:[],createdAt:now,updatedAt:now,note:'',extra:{}}}
 onMounted(load)
 </script>
 
-<template><main class="shell">
+<template><main class="shell" :class="{'has-detail':selected}"><header class="titlebar"><div class="drag-region"><span class="bear mini">熊</span><b>熊智ToDo</b></div><div class="window-controls"><button aria-label="最小化" @click="bridge().minimizeWindow()">—</button><button aria-label="最大化或还原" @click="bridge().toggleMaximizeWindow()">□</button><button class="close" aria-label="关闭" @click="bridge().closeWindow()">×</button></div></header>
   <aside class="nav" aria-label="列表导航"><div class="brand"><span class="bear">熊</span><strong>熊智ToDo</strong></div><label class="search"><span>⌕</span><input v-model="search" placeholder="搜索任务、标签或步骤" aria-label="全局搜索"/></label>
     <button v-for="item in smart" :key="item.id" :class="{selected:view===item.id}" @click="view=item.id"><span>{{item.icon}}</span>{{item.name}}<small>{{queryTasks(tasks,item.id).length}}</small></button><hr/>
     <button :class="{selected:view==='inbox'}" @click="view='inbox'"><span>☷</span>任务<small>{{queryTasks(tasks,'inbox').length}}</small></button>
