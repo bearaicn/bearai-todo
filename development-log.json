@@ -1,8 +1,8 @@
 {
-  "task": "迁移到工作目录、项目/子项目文件夹和task@2",
-  "status": "in-progress-workspace-v2-implemented",
-  "filesModified": ["src/domain/", "src/infrastructure/", "src/App.vue", "electron/", "tests/", "README.md", "docs/"],
-  "validation": { "unitTests": "14/14 pass across 3 files", "typecheck": "pass", "build": "pass", "electronSmoke": "pass: workspace, project, child project, task and child task persisted", "visual": "real Electron pass for v2 navigation, project tree and three-item context menu", "externalMove": "pass: containing project folder overrides stale projectId", "diffCheck": "pass" },
-  "timestamp": "2026-08-06T22:44:00+08:00",
-  "nextSteps": ["实现旧数据事务迁移与工作目录选择", "实现文件监听和项目恢复中心"]
+  "task": "修复项目输入交互并实现设置和工作目录迁移",
+  "status": "in-progress-settings-migration-implemented",
+  "filesModified": ["src/App.vue", "src/style.css", "src/infrastructure/settingsRepository.ts", "src/infrastructure/workspaceRepository.ts", "electron/", "tests/", "README.md", "docs/"],
+  "validation": { "unitTests": "17/17 pass across 3 files", "typecheck": "pass", "build": "pass", "electronUiSmoke": "pass: subproject dialog, actual creation, rename dialog and settings panel", "visual": "real Electron settings panel screenshot pass", "migration": "pass for copy verification, settings persistence, empty-target and nesting guards", "legacyDefault": "pass: 任务 folder renamed to 默认项目 with stable id", "diffCheck": "pass" },
+  "timestamp": "2026-08-06T23:10:00+08:00",
+  "nextSteps": ["实现旧task@1 steps事务迁移和项目恢复中心", "验证安装版原生目录选择和迁移"]
 }
