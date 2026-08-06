@@ -22,15 +22,15 @@
 
 ## 项目与子项目
 
-项目是带 `.bearai-project.json` 的真实文件夹；子项目是嵌套项目文件夹，不是另一种实体。项目配置使用 `bearai.todo/project@1`，包含稳定 `projectId`、revision、name、parentId、order、archived 和时间。目录位置表示当前结构，ID 表示身份。
+项目是带 `.bearai-project.json` 的真实文件夹；子项目是嵌套项目文件夹，不是另一种实体。项目配置使用 `bearai.todo/project@1`，包含稳定 `projectId`、revision、name、parentId、order、archived、icon、description、sidebarColor、theme、collapsed 和时间。目录位置表示当前结构，ID 表示身份；移动项目会移动整个文件夹并保持 ID。
 
-项目右键支持新增子项目、重命名和归档，新增与重命名使用应用内模态输入框。归档把整个目录原子移动到 `.archive/projects/<projectId>`，不物理删除。项目或子项目改名不改变 ID。
+项目右键支持新增子项目、重命名、属性和归档。属性中的图标、描述、侧边栏颜色与主题均写入项目配置。归档把整个目录原子移动到 `.archive/projects/<projectId>`，不物理删除。项目或子项目改名不改变 ID。
 
 `默认项目/` 是初始化时自动创建的真实项目文件夹，并包含正常的 `.bearai-project.json`，不是虚拟视图。旧工作区中的一级 `任务/` 项目会在启动时保留 projectId 和全部内容并安全改名为 `默认项目/`。
 
 ## 本机设置与切换工作目录
 
-当前电脑的工作目录路径和主题保存在 `%APPDATA%/BearAI ToDo/settings.json`，不包含任务业务副本。修改工作目录只允许选择空目标目录，并执行：复制全部内容、统计项目/任务数量、校验根配置存在、写入本机设置、切换仓储。原工作目录不删除，作为人工可恢复备份。新旧目录不得互相嵌套。
+当前电脑的工作目录路径和全局主题保存在 `%APPDATA%/BearAI ToDo/settings.json`，不包含任务业务副本。修改工作目录只允许选择空目标目录，并执行：复制全部内容、统计项目/任务数量、校验根配置存在、删除原工作目录、写入本机设置、切换仓储。迁移成功后不保留旧目录副本；任一步校验失败则不删除旧目录。新旧目录不得互相嵌套。
 
 ## 任务与子任务
 

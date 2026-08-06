@@ -1,8 +1,16 @@
 {
-  "task": "修复项目输入交互并实现设置和工作目录迁移",
-  "status": "in-progress-settings-migration-implemented",
-  "filesModified": ["src/App.vue", "src/style.css", "src/infrastructure/settingsRepository.ts", "src/infrastructure/workspaceRepository.ts", "electron/", "tests/", "README.md", "docs/"],
-  "validation": { "unitTests": "17/17 pass across 3 files", "typecheck": "pass", "build": "pass", "electronUiSmoke": "pass: subproject dialog, actual creation, rename dialog and settings panel", "visual": "real Electron settings panel screenshot pass", "migration": "pass for copy verification, settings persistence, empty-target and nesting guards", "legacyDefault": "pass: 任务 folder renamed to 默认项目 with stable id", "diffCheck": "pass" },
-  "timestamp": "2026-08-06T23:10:00+08:00",
-  "nextSteps": ["实现旧task@1 steps事务迁移和项目恢复中心", "验证安装版原生目录选择和迁移"]
+  "task": "实现项目树、账号菜单、项目属性主题和子任务列表交互",
+  "status": "in-progress-project-interaction-batch-implemented",
+  "filesModified": ["src/App.vue", "src/style.css", "src/domain/project.ts", "src/infrastructure/settingsRepository.ts", "src/infrastructure/workspaceRepository.ts", "electron/", "tests/", "README.md", "docs/"],
+  "validation": {
+    "unitTests": "18/18 pass across 3 files",
+    "typecheck": "pass",
+    "build": "pass",
+    "electronUiSmoke": "pass: subproject creation, project properties, account menu, settings, hidden empty detail",
+    "visual": "real Electron 1600x1000 screenshot inspected: frosted green theme and settings layout pass",
+    "migration": "pass: copied content verified and original directory removed",
+    "projectPersistence": "pass: appearance, collapse and physical move survive repository reload"
+  },
+  "timestamp": "2026-08-06T23:43:00+08:00",
+  "nextSteps": ["实现截止日期、提醒和重复领域语义", "实现附件安全路径与外部编辑冲突界面", "准备 Windows 安装包和完整验收数据闭环"]
 }

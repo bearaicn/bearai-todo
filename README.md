@@ -15,6 +15,6 @@ npm run dev
 
 `npm run dev` 启动 Vite 开发服务器和 Electron；`npm start` 直接打开最近一次生产构建。`npm run smoke:electron` 用隔离的 `BEARAI_TODO_DATA_DIR` 验证 preload、IPC、项目/子项目、任务/子任务和关键 UI 交互，不能指向正式数据目录。
 
-左侧“设置”可查看和修改工作目录。切换时应用只接受空目标目录，先完整复制并校验项目与任务数量，再写入 `%APPDATA%/BearAI ToDo/settings.json` 并切换；原目录保留为恢复备份。默认项目是工作目录下真实的 `默认项目/` 文件夹及 `.bearai-project.json`。
+侧边栏底部的本地用户头像菜单可打开设置。切换工作目录时应用只接受空目标目录，先完整复制并校验项目与任务数量及根配置，再删除旧工作目录、写入 `%APPDATA%/BearAI ToDo/settings.json` 并切换；不会保留旧目录副本。默认项目是工作目录下真实的 `默认项目/` 文件夹及 `.bearai-project.json`。
 
 开发模式默认使用 `%APPDATA%/BearAI ToDo/data`；可通过 `BEARAI_TODO_DATA_DIR` 指向测试目录。项目不配置远程，也不会自动上传数据。
