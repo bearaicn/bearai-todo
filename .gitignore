@@ -6,3 +6,6 @@ coverage/
 *.log
 .tmp-smoke-data/
 .tmp-smoke.png
+.tmp-visual-data*/
+.tmp-final-layout-data/
+.tmp-*.png
