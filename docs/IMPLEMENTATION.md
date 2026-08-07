@@ -69,4 +69,4 @@
 
 preload 对 task、嵌套 attachment、project patch 与 settings patch 统一转换为 JSON 兼容纯 DTO，渲染调用附件操作前再次去除 Vue Proxy，修复 `An object could not be cloned`。任务文本采用 550ms 防抖、单队列串行保存；关闭详情、切换任务/项目和应用关闭按钮会 flush。界面显示未保存、正在保存、已保存、保存失败；失败不再调用 `load()` 覆盖草稿，revision 冲突同时保留本地和磁盘版本供选择。
 
-高级详情宽度为 1020px，与 340px 简单详情形成 3 倍关系；低于 1700px 使用右侧覆盖层。高级编辑器为 Milkdown/Crepe，正文仍只写 Markdown；图片进入受管附件并通过安全协议显示。项目菜单分成独立“任务展开”和“项目展开”：任务字段为 `rememberTaskExpansion`、`defaultTaskExpandDepth`、`expandedTaskIds`，项目字段为 `showSubprojects`，互不联动；旧 expandMode/expandDepth 在读取时迁移。
+高级详情宽度为 1020px，与 340px 简单详情形成 3 倍关系；低于 1700px 使用右侧覆盖层。高级编辑器为 Milkdown/Crepe，正文仍只写 Markdown；图片进入受管附件并通过安全协议显示。项目菜单分成独立“任务展开”和“项目展开”。任务展开又分为互斥默认策略 `defaultTaskExpansion.mode`（默认不展开或按固定层级展开）与独立记忆开关 `rememberTaskExpansion`；项目字段 `showSubprojects` 双向不联动。固定深度只有第一至第五层和全部。旧三态及前一错误迭代字段只在读取时迁移，不再写回。

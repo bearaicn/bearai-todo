@@ -6,8 +6,8 @@ import type {
   ProjectTheme,
   ProjectViewSettings,
 } from "./domain/project";
+import { withoutLegacyExpansionSettings } from "./domain/project";
 import { childTasks, queryTasks } from "./domain/taskQueries";
-import { updateExpansionSettings } from "./domain/taskExpansion";
 import AppIcon from "./components/AppIcon.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import "./task-detail.css";
@@ -115,8 +115,8 @@ const effectiveView = computed<ProjectViewSettings>(() => {
   const fallback = settings.value?.projectDefaults ?? {
     sortMode: "manual",
     theme: settings.value?.theme ?? "mist",
+    defaultTaskExpansion: { mode: "collapsed" as const, depth: 1 as const },
     rememberTaskExpansion: false,
-    defaultTaskExpandDepth: 0,
     showSubprojects: false,
     expandedTaskIds: [],
   };
@@ -125,9 +125,9 @@ const effectiveView = computed<ProjectViewSettings>(() => {
   const legacy = owner?.viewSettings;
   return {
     ...fallback,
-    ...legacy,
-    rememberTaskExpansion: legacy?.rememberTaskExpansion ?? (legacy?.expandMode ? legacy.expandMode === "remember" : fallback.rememberTaskExpansion),
-    defaultTaskExpandDepth: Math.max(0,Math.min(20,legacy?.defaultTaskExpandDepth ?? (legacy?.expandMode === "expanded" ? legacy.expandDepth ?? 1 : fallback.defaultTaskExpandDepth))),
+    ...withoutLegacyExpansionSettings(legacy ?? {}),
+    defaultTaskExpansion: legacy?.defaultTaskExpansion ?? { mode: legacy?.expandMode === "expanded" ? "depth" : fallback.defaultTaskExpansion.mode, depth: legacy?.expandMode === "expanded" ? "all" : fallback.defaultTaskExpansion.depth },
+    rememberTaskExpansion: legacy?.rememberTaskExpansion ?? (legacy?.expandMode === "remember"),
     ...(!owner &&
     currentProject.value?.settingsMode === undefined &&
     currentProject.value?.theme
@@ -652,13 +652,14 @@ async function setProjectView(patch: Partial<ProjectViewSettings>) {
   const project = currentProject.value;
   if (!project) return;
   try {
-    const viewSettings = updateExpansionSettings({
+    const viewSettings = {
       ...effectiveView.value,
       expandedTaskIds: [
         ...(patch.expandedTaskIds ?? effectiveView.value.expandedTaskIds),
       ],
       ...patch,
-    }, patch);
+      defaultTaskExpansion:{...effectiveView.value.defaultTaskExpansion,...patch.defaultTaskExpansion},
+    };
     Object.assign(
       project,
       await bridge().updateProject(project.projectId, {
@@ -751,16 +752,19 @@ watch(
     view,
     () => tasks.value.length,
     () => effectiveView.value.rememberTaskExpansion,
-    () => effectiveView.value.defaultTaskExpandDepth,
+    () => effectiveView.value.defaultTaskExpansion.mode,
+    () => effectiveView.value.defaultTaskExpansion.depth,
   ],
   () => {
     if (!currentProject.value) return;
     const validIds = new Set(tasks.value.filter(task => task.projectId === currentProject.value?.projectId && childTasks(tasks.value,task.id).length).map(task=>task.id));
     const remembered = effectiveView.value.expandedTaskIds.filter(id=>validIds.has(id));
     if (effectiveView.value.rememberTaskExpansion && remembered.length) { expandedTasks.value = new Set(remembered); return; }
+    if(effectiveView.value.defaultTaskExpansion.mode==='collapsed'){expandedTasks.value=new Set();return}
+    const limit=effectiveView.value.defaultTaskExpansion.depth==='all'?Number.POSITIVE_INFINITY:effectiveView.value.defaultTaskExpansion.depth;
     const next = new Set<string>(),
       visit = (parentId: string | null, depth: number) => {
-        if (depth >= Math.max(0,Math.min(20,effectiveView.value.defaultTaskExpandDepth))) return;
+        if (depth >= limit) return;
         tasks.value
           .filter(
             (task) =>
@@ -1014,30 +1018,19 @@ onMounted(load);
           <button
             @click="
               setProjectView({
-                rememberTaskExpansion: !effectiveView.rememberTaskExpansion,
+                defaultTaskExpansion: {...effectiveView.defaultTaskExpansion, mode: 'collapsed'},
               })
             "
           >
             <span class="menu-check"
               ><AppIcon
-                v-if="effectiveView.rememberTaskExpansion"
+                v-if="effectiveView.defaultTaskExpansion.mode === 'collapsed'"
                 name="check"
                 :size="15" /></span
-            ><span>记住上次展开情况</span></button
-          ><label
-            class="menu-depth"
-            >默认展开到第几层
-            <input
-              :value="effectiveView.defaultTaskExpandDepth"
-              type="number"
-              min="0"
-              max="20"
-              @change="
-                setProjectView({
-                  defaultTaskExpandDepth: Math.max(0, Math.min(20, Number(($event.target as HTMLInputElement).value) || 0)),
-                })
-              " /></label
-          ><div class="menu-label project-expand-label">项目展开</div>
+            ><span>默认不展开</span></button
+          ><div class="menu-depth expansion-depth-option"><button @click="setProjectView({defaultTaskExpansion:{...effectiveView.defaultTaskExpansion,mode:'depth'}})"><span class="menu-check"><AppIcon v-if="effectiveView.defaultTaskExpansion.mode==='depth'" name="check" :size="15"/></span><span>默认展开到</span></button><select aria-label="默认展开层级" :disabled="effectiveView.defaultTaskExpansion.mode!=='depth'" :value="effectiveView.defaultTaskExpansion.depth" @change="setProjectView({defaultTaskExpansion:{mode:'depth',depth:(($event.target as HTMLSelectElement).value==='all'?'all':Number(($event.target as HTMLSelectElement).value)) as any}})"><option value="1">第一层</option><option value="2">第二层</option><option value="3">第三层</option><option value="4">第四层</option><option value="5">第五层</option><option value="all">全部</option></select></div>
+          <button @click="setProjectView({rememberTaskExpansion:!effectiveView.rememberTaskExpansion})"><span class="menu-check"><AppIcon v-if="effectiveView.rememberTaskExpansion" name="check" :size="15"/></span><span>记住上次展开情况</span></button>
+          <div class="menu-label project-expand-label">项目展开</div>
           <button
             @click="
               setProjectView({
@@ -1595,7 +1588,9 @@ onMounted(load);
                 <option value="title">按标题</option>
                 <option value="updated">最近更新</option>
               </select></label
-            ><label class="check-setting"
+            ><label>默认任务展开<select v-model="settings.projectDefaults.defaultTaskExpansion.mode" @change="savePreferences({projectDefaults:settings.projectDefaults})"><option value="collapsed">默认不展开</option><option value="depth">默认展开到指定层级</option></select></label>
+            <label>默认展开到<select v-model="settings.projectDefaults.defaultTaskExpansion.depth" :disabled="settings.projectDefaults.defaultTaskExpansion.mode!=='depth'" @change="savePreferences({projectDefaults:settings.projectDefaults})"><option :value="1">第一层</option><option :value="2">第二层</option><option :value="3">第三层</option><option :value="4">第四层</option><option :value="5">第五层</option><option value="all">全部</option></select></label>
+            <label class="check-setting"
               ><input
                 v-model="settings.projectDefaults.rememberTaskExpansion"
                 type="checkbox"
@@ -1603,15 +1598,6 @@ onMounted(load);
                   savePreferences({ projectDefaults: settings.projectDefaults })
                 "
               />记住上次任务展开情况</label
-            ><label
-              >默认任务展开层级<input
-                v-model.number="settings.projectDefaults.defaultTaskExpandDepth"
-                type="number"
-                min="0"
-                max="20"
-                @change="
-                  savePreferences({ projectDefaults: settings.projectDefaults })
-                " /></label
             ><label class="check-setting"
               ><input
                 v-model="settings.projectDefaults.showSubprojects"
