@@ -46,6 +46,7 @@ revision: 1
 title: 示例任务
 projectId: 51e58eb6-082a-46dc-80e4-65fb32c49a52
 parentId: null
+kind: simple
 status: active
 favorite: false
 due: null
@@ -61,6 +62,10 @@ completedAt: null
 ```
 
 项目归属以文件所在目录为最终依据；`projectId` 用于冲突检测和外部移动后的重建校验。子任务也是独立 Markdown，通过 `parentId` 指向父任务。旧 task@1 的 `listId`、`important`、`myDay` 和 `steps` 只用于迁移：`important` 映射为 `favorite`，旧 steps 转为独立子任务文件，未知字段和正文必须保留。
+
+`kind` 为 `simple` 或 `advanced`，缺省按 `simple` 兼容。两种类型的备注都仍是 Markdown 正文：简单任务显示普通文本框，高级任务显示 Markdown 工具栏、源码和预览，不引入另一份富文本数据。`due`、`reminder` 使用带时区含义的 ISO 8601 时间；`repeat` v1 使用 `{ frequency: daily|weekly|monthly|yearly, interval: 1 }`。应用启动和任务保存时会为未来 24.8 天内的 reminder 安排 Windows 本地通知，完成任务会取消其调度。
+
+附件复制到 `.attachments/<task-uuid>/<attachment-id-prefix>--<原文件名>`。任务 frontmatter 中的 `attachments` 只保存稳定附件 ID、原文件名、相对路径、MIME、字节数和创建时间。主进程必须验证解析后的路径仍在工作目录 `.attachments` 内；渲染层不能读取任意本地路径。当前内置预览支持图片、音频、视频、PDF、文本、Markdown、JSON 和 CSV；其他格式或超过 25 MB 的文件显示不支持提示，但所有预览弹窗都提供“下载文件”（另存为）操作。
 
 ## 智能视图
 

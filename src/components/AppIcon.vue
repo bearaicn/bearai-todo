@@ -27,5 +27,8 @@ defineProps<{name:string;size?:number}>()
     <template v-else-if="name==='minimize'"><path d="M5 12h14"/></template>
     <template v-else-if="name==='maximize'"><rect x="5" y="5" width="14" height="14" rx="1"/></template>
     <template v-else-if="name==='folder'"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></template>
+    <template v-else-if="name==='paperclip'"><path d="m21.4 11.6-8.9 8.9a6 6 0 0 1-8.5-8.5l9.6-9.6a4 4 0 0 1 5.7 5.7l-9.7 9.7a2 2 0 0 1-2.8-2.8l8.9-8.9"/></template>
+    <template v-else-if="name==='download'"><path d="M12 3v12m0 0 5-5m-5 5-5-5M4 20h16"/></template>
+    <template v-else-if="name==='file'"><path d="M6 2h8l4 4v16H6zM14 2v5h5"/></template>
   </svg>
 </template>
