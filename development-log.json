@@ -1,17 +1,17 @@
 {
-  "task": "修复附件 IPC、统一自动保存、升级 Milkdown 并修正展开模型",
-  "status": "in-progress-latest-independent-expansion-model-verified",
+  "task": "完善高级任务工具栏、50%详情宽度和日期提醒选择",
+  "status": "in-progress-advanced-detail-and-scheduling-ui-verified",
   "filesModified": ["src/App.vue", "src/task-detail.css", "src/domain/task.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/components/AppIcon.vue", "electron/main.ts", "electron/preload.cjs", "tests/taskRepository.test.ts", "docs/"],
   "validation": {
     "unitTests": "38/38 pass across 4 files, including four strategy-memory combinations, six fixed depths, migration cleanup and three-way independence",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: fresh isolated workspace/userData; expansion DOM, attachment preview, autosave, persistence and 1440x900 layout all passed",
-    "visual": "fresh isolated Electron screenshot inspected: two default strategies, disabled depth selector, independent remember switch and separate project expansion group are visible without overlay",
+    "electronUiSmoke": "pass: fresh isolated workspace/userData; advanced panel ratio=0.5, 11 toolbar commands found, custom date picker opened and reminder shortcut persisted",
+    "visual": "fresh isolated 1440x900 Electron screenshot inspected: advanced panel uses right half, editor has visible border and fixed toolbar, scheduling rows align and remain fully clickable",
     "expansionMigration": "pass: old expandMode and interim depth fields are read once, converted to the independent model and stripped from subsequent settings/project JSON writes",
     "migration": "pass: copied content verified and original directory removed",
     "projectPersistence": "pass: appearance, collapse and physical move survive repository reload"
   },
-  "timestamp": "2026-08-07T22:16:00+08:00",
+  "timestamp": "2026-08-07T23:42:00+08:00",
   "nextSteps": ["扩大 Milkdown 图片粘贴与 Office/网页样本矩阵并做动态加载", "补齐重复任务实例语义与外部文件监听", "准备 Windows 安装包和完整验收数据闭环"]
 }

@@ -10,6 +10,7 @@ import { withoutLegacyExpansionSettings } from "./domain/project";
 import { childTasks, queryTasks } from "./domain/taskQueries";
 import AppIcon from "./components/AppIcon.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
+import SchedulePicker from "./components/SchedulePicker.vue";
 import "./task-detail.css";
 
 type Dialog = {
@@ -365,10 +366,10 @@ function localDateTime(value?: string | null) {
         .toISOString()
         .slice(0, 16);
 }
-async function saveDate(field: "due" | "reminder", value: string) {
+async function saveDate(field: "due" | "reminder", value: string | null) {
   if (selected.value)
     await save(selected.value, {
-      [field]: value ? new Date(value).toISOString() : null,
+      [field]: value,
     });
 }
 async function setKind(kind: TaskKind) {
@@ -1256,23 +1257,9 @@ onMounted(load);
           </form>
         </div>
         <section class="schedule-card">
+          <SchedulePicker kind="reminder" :model-value="selected.reminder" @change="saveDate('reminder',$event)" />
+          <SchedulePicker kind="due" :model-value="selected.due" @change="saveDate('due',$event)" />
           <label
-            ><AppIcon name="clock" /><span>提醒我</span
-            ><input
-              :value="localDateTime(selected.reminder)"
-              type="datetime-local"
-              @change="
-                saveDate('reminder', ($event.target as HTMLInputElement).value)
-              " /></label
-          ><label
-            ><AppIcon name="calendar" /><span>截止时间</span
-            ><input
-              :value="localDateTime(selected.due)"
-              type="datetime-local"
-              @change="
-                saveDate('due', ($event.target as HTMLInputElement).value)
-              " /></label
-          ><label
             ><AppIcon name="repeat" /><span>重复</span
             ><select
               :value="selected.repeat?.frequency ?? ''"

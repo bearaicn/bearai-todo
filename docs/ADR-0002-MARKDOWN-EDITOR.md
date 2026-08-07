@@ -6,6 +6,8 @@
 
 Milkdown 对 Vue 3 有官方支持；Crepe 提供标题、粗体、斜体、删除线、列表、任务列表、引用、代码、代码块、链接、表格、撤销/重做和所见即所得交互。相比自制 textarea，它能提供成熟的 Markdown-first 行为；相比以 HTML/JSON 为主数据的编辑器，不会引入第二正文权威源。
 
+为避免空白编辑区被误认为不可输入，应用在 Crepe 上方增加始终可见的命令工具栏，并保留明显边框、中文占位提示与紧凑内边距；工具栏直接调用 Milkdown 命令，不维护第二份富文本状态。
+
 ## 图片与安全资源
 
 上传图片由主进程复制到 `.attachments/<taskId>/` 并追加 attachment 元数据。编辑期间使用受限 `bearai-asset://attachment/<attachmentId>`；协议处理器只能按 Markdown 仓储中已登记的附件 ID 解析，并再次执行附件根目录边界校验。进入自动保存队列前，运行时 URL 转回 `.attachments/...` 相对路径；重新打开时反向映射。因此磁盘正文禁止 base64、blob URL、绝对路径和应用协议 URL。

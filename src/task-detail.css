@@ -6,7 +6,7 @@
     box-shadow 0.32s;
 }
 .shell:has(.detail.advanced) {
-  grid-template-columns: var(--sidebar-width, 262px) minmax(420px, 1fr) 1020px;
+  grid-template-columns: var(--sidebar-width, 262px) minmax(360px, 1fr) 50vw;
 }
 .detail {
   padding: 0 !important;
@@ -40,6 +40,13 @@
   padding: 0 14px;
   border-bottom: 1px solid rgba(92, 118, 108, 0.1);
 }
+.schedule-picker{position:relative;border-bottom:1px solid rgba(92,118,108,.1)}
+.schedule-trigger{width:100%;min-height:52px;display:grid;grid-template-columns:22px 92px minmax(0,1fr);align-items:center;gap:8px;padding:0 14px;border:0;background:transparent;text-align:left}
+.schedule-trigger b{overflow:hidden;color:var(--muted);font-weight:400;text-align:right;text-overflow:ellipsis;white-space:nowrap}
+.schedule-quick-menu{position:absolute;z-index:70;left:38px;right:12px;top:48px;padding:7px;border:1px solid rgba(80,105,96,.14);border-radius:12px;background:#fff;box-shadow:0 16px 36px rgba(28,48,41,.18)}
+.schedule-quick-menu button{width:100%;min-height:42px;display:flex;align-items:center;gap:10px;padding:0 12px;border:0;border-radius:8px;background:transparent;text-align:left}
+.schedule-quick-menu button:hover{background:var(--accent-soft)}.schedule-quick-menu small{margin-left:auto;color:var(--muted)}.schedule-quick-menu .custom-date{border-top:1px solid rgba(80,105,96,.11);border-radius:0}.schedule-quick-menu .clear-date{color:#aa4646}.date-picker-hidden-trigger{position:absolute;width:1px;height:1px;overflow:hidden}
+.date-picker-open-marker{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .schedule-card label:last-child {
   border: 0;
 }
@@ -134,9 +141,7 @@
   resize: vertical;
   outline: 0;
 }
-.markdown-editor {
-  overflow: hidden;
-}
+.markdown-editor {overflow:hidden;border-color:color-mix(in srgb,var(--accent) 35%,rgba(92,118,108,.2));box-shadow:inset 0 0 0 1px rgba(255,255,255,.5)}
 .markdown-toolbar {
   height: 42px;
   display: flex;
@@ -287,7 +292,7 @@
     top: 42px;
     bottom: 0;
     z-index: 25;
-    width: min(1020px, 94vw);
+    width: 50vw;
     box-shadow: -18px 0 45px rgba(30, 55, 47, 0.2);
   }
 }
@@ -319,5 +324,5 @@
   width: min(180px, calc(100% - 54px));
 }
 .error{display:flex;align-items:center;gap:12px}.error span{flex:1}.error button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent}.error button:hover{background:rgba(163,39,39,.1)}.save-indicator{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:-3px 3px 8px;color:var(--muted);font-size:11px}.save-indicator.saving,.save-indicator.dirty{color:#8a6b22}.save-indicator.failed{color:#a32727}.save-indicator button{border:0;background:transparent;text-decoration:underline}.project-expand-label{margin-top:7px;padding-top:12px;border-top:1px solid rgba(70,90,83,.12)}
-.milkdown-editor-shell{min-height:460px;background:#fff}.milkdown-host{min-height:458px}.milkdown-host .milkdown{min-height:458px;padding:28px 34px}.milkdown-host .ProseMirror{min-height:390px;outline:0}.milkdown-host img{max-width:100%;height:auto;border-radius:10px}.milkdown-host table{width:100%;border-collapse:collapse}.milkdown-host td,.milkdown-host th{border:1px solid rgba(92,118,108,.18);padding:7px}
+.milkdown-editor-shell{min-height:460px;background:#fff}.markdown-editor-frame{min-height:458px}.rich-toolbar{position:sticky;top:0;z-index:3;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:3px;padding:5px 7px;border-bottom:1px solid rgba(92,118,108,.18);background:#f8faf9}.rich-toolbar button{min-width:31px;height:31px;padding:0 8px;border:0;border-radius:7px;background:transparent;font-size:12px}.rich-toolbar button:hover{background:var(--accent-soft);color:var(--accent)}.rich-toolbar span{width:1px;height:20px;margin:0 3px;background:rgba(92,118,108,.16)}.milkdown-host{min-height:414px}.milkdown-host .milkdown{min-height:414px;padding:14px 16px}.milkdown-host .ProseMirror{min-height:370px;padding:8px;outline:0}.milkdown-host .ProseMirror:empty:before{content:'在这里输入 Markdown 富文本…';color:#98a39f;pointer-events:none}.milkdown-host img{max-width:100%;height:auto;border-radius:10px}.milkdown-host table{width:100%;border-collapse:collapse}.milkdown-host td,.milkdown-host th{border:1px solid rgba(92,118,108,.18);padding:7px}
 .expansion-depth-option{display:grid;grid-template-columns:1fr 112px;align-items:center;padding:0 7px}.expansion-depth-option>button{padding-left:4px!important}.expansion-depth-option select{height:32px;min-width:0;border:1px solid rgba(70,90,83,.18);border-radius:7px;background:white;padding:0 7px}.expansion-depth-option select:disabled{opacity:.48;cursor:not-allowed}
