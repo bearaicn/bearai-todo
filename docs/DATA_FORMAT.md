@@ -67,6 +67,12 @@ completedAt: null
 
 附件复制到 `.attachments/<task-uuid>/<attachment-id-prefix>--<原文件名>`。任务 frontmatter 中的 `attachments` 只保存稳定附件 ID、原文件名、相对路径、MIME、字节数和创建时间。主进程必须验证解析后的路径仍在工作目录 `.attachments` 内；渲染层不能读取任意本地路径。当前内置预览支持图片、音频、视频、PDF、文本、Markdown、JSON 和 CSV；其他格式或超过 25 MB 的文件显示不支持提示，但所有预览弹窗都提供“下载文件”（另存为）操作。
 
+## 高级编辑器运行时边界
+
+高级任务由 Milkdown/Crepe 编辑，但唯一持久化输出仍为 Markdown 正文。图片选择、拖入或粘贴会先复制到受管附件区；磁盘正文只写相对图片路径。运行时 `bearai-asset://attachment/<id>` 仅用于安全显示，保存前必须转换回相对路径。删除正文图片引用不自动删除附件实体；实体只能由附件区的明确移除操作删除。
+
+项目视图设置将任务树与项目目录分开：`rememberTaskExpansion`、`defaultTaskExpandDepth`、`expandedTaskIds` 只控制任务树；`showSubprojects` 只控制任务区是否显示子项目目录。默认深度为 0–20 的整数。旧 `expandMode/expandDepth` 在设置读取时迁移，不再作为运行时决策来源。
+
 ## 智能视图
 
 - 今日待办：全部未完成顶层任务。

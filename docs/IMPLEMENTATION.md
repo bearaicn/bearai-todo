@@ -20,6 +20,10 @@
 - [x] 当前列表查询、九维任务统计、子项目目录显示与双击跳转
 - [x] 任务详情截止时间、提醒调度、重复配置、简单/高级 Markdown 备注
 - [x] 附件复制、路径边界校验、格式卡片、内置预览、另存为与移除
+- [x] IPC 纯 DTO、PNG 响应式附件预览回归门禁与可关闭错误条
+- [x] 任务详情防抖串行自动保存、flush、状态提示与 revision 冲突草稿选择
+- [x] 高级详情 1020px 三倍宽度和 Milkdown/Crepe Markdown-first 编辑器
+- [x] 任务展开与项目展开独立设置模型及旧配置迁移
 - [ ] 提醒、重复实例、附件与恢复中心
 - [ ] Windows 安装包、视觉回归与人工验收
 
@@ -60,3 +64,9 @@
 ## 2026-08-06 运行时缺陷修复
 
 根因是 sandbox preload 使用 ESM 编译产物，bridge 未注入后渲染层又静默使用内存 mock，造成任务看似成功但重启丢失，分组则无反馈。现改为 sandbox 可执行的 CommonJS preload，增加健康检查并移除全部任务内存回退；bridge 失败会显示错误。Vite 生产资源改为相对路径，`npm start` 加载构建版，只有 `--dev` 才访问开发服务器。真实 Electron 冒烟已验证分组和任务可重新读取且对应 Markdown 文件存在。
+
+## 2026-08-07 自动保存、Milkdown 与展开模型修正
+
+preload 对 task、嵌套 attachment、project patch 与 settings patch 统一转换为 JSON 兼容纯 DTO，渲染调用附件操作前再次去除 Vue Proxy，修复 `An object could not be cloned`。任务文本采用 550ms 防抖、单队列串行保存；关闭详情、切换任务/项目和应用关闭按钮会 flush。界面显示未保存、正在保存、已保存、保存失败；失败不再调用 `load()` 覆盖草稿，revision 冲突同时保留本地和磁盘版本供选择。
+
+高级详情宽度为 1020px，与 340px 简单详情形成 3 倍关系；低于 1700px 使用右侧覆盖层。高级编辑器为 Milkdown/Crepe，正文仍只写 Markdown；图片进入受管附件并通过安全协议显示。项目菜单分成独立“任务展开”和“项目展开”：任务字段为 `rememberTaskExpansion`、`defaultTaskExpandDepth`、`expandedTaskIds`，项目字段为 `showSubprojects`，互不联动；旧 expandMode/expandDepth 在读取时迁移。

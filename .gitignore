@@ -11,3 +11,4 @@ coverage/
 .tmp-*.png
 .tmp-*-data/
 .tmp-*-data*/
+.qa/

@@ -1,16 +1,16 @@
 {
-  "task": "打造任务详情面板、Markdown 高级任务和附件预览",
-  "status": "in-progress-task-detail-and-attachments-implemented",
+  "task": "修复附件 IPC、统一自动保存、升级 Milkdown 并修正展开模型",
+  "status": "in-progress-autosave-milkdown-and-expansion-model-implemented",
   "filesModified": ["src/App.vue", "src/task-detail.css", "src/domain/task.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/components/AppIcon.vue", "electron/main.ts", "electron/preload.cjs", "tests/taskRepository.test.ts", "docs/"],
   "validation": {
-    "unitTests": "20/20 pass across 3 files, including advanced task schedule/repeat/attachment Markdown round-trip",
+    "unitTests": "29/29 pass across 4 files, including expansion independence, depth validation and Markdown round-trip",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: advanced-task switch executed in a real window; detail screenshot captured after the 280ms width transition",
-    "visual": "real Electron 1280x800 advanced task panel inspected after animation; initial narrow-column overflow found and fixed, title/query and Markdown split view now fit",
+    "electronUiSmoke": "pass: isolated workspace/userData; reactive PNG click opens preview without clone error; rapid title input flush persists final value",
+    "visual": "1280x800 and 1440x900 overlay layouts plus 2048x921 inline 1020px detail inspected; independent task/project expansion menu inspected",
     "migration": "pass: copied content verified and original directory removed",
     "projectPersistence": "pass: appearance, collapse and physical move survive repository reload"
   },
-  "timestamp": "2026-08-07T09:49:00+08:00",
-  "nextSteps": ["补齐重复任务完成后生成下一实例的领域语义", "实现外部编辑监听与 revision 冲突界面", "准备 Windows 安装包和完整验收数据闭环"]
+  "timestamp": "2026-08-07T20:18:00+08:00",
+  "nextSteps": ["扩大 Milkdown 图片粘贴与 Office/网页样本矩阵并做动态加载", "补齐重复任务实例语义与外部文件监听", "准备 Windows 安装包和完整验收数据闭环"]
 }
