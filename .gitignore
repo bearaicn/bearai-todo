@@ -10,3 +10,4 @@ coverage/
 .tmp-final-layout-data/
 .tmp-*.png
 .tmp-*-data/
+.tmp-*-data*/

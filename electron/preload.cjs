@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('bearTodo', {
   archiveProject: (projectId) => ipcRenderer.invoke('projects:archive', projectId),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setTheme: theme => ipcRenderer.invoke('settings:set-theme', theme),
+  setPreferences: patch => ipcRenderer.invoke('settings:set-preferences', patch),
+  chooseThemeBackground: () => ipcRenderer.invoke('settings:choose-theme-background'),
   changeWorkspace: () => ipcRenderer.invoke('settings:change-workspace'),
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   toggleMaximizeWindow: () => ipcRenderer.send('window:toggle-maximize'),

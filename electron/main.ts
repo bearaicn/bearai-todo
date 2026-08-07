@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { TaskRepository } from '../src/infrastructure/taskRepository.js'
 import { ProjectRepository, WorkspaceRepository } from '../src/infrastructure/workspaceRepository.js'
 import { migrateWorkspace, SettingsRepository } from '../src/infrastructure/settingsRepository.js'
+if(process.argv.includes('--smoke'))app.disableHardwareAcceleration()
 let dataRoot=''
 let repository:TaskRepository,projectRepository:ProjectRepository,workspaceRepository:WorkspaceRepository,settingsRepository:SettingsRepository
 function configureRepositories(root:string){dataRoot=root;repository=new TaskRepository(root);projectRepository=new ProjectRepository(root);workspaceRepository=new WorkspaceRepository(root)}
@@ -23,11 +24,15 @@ function createWindow() {
       Object.assign(result,uiResult)
       const interactionMetrics=await win.webContents.executeJavaScript(`(()=>{const toggle=document.querySelector('.tree-toggle:not(.hidden)'),smart=document.querySelector('.smart-row'),account=document.querySelector('.account-block');return{treeToggle:toggle?{width:toggle.getBoundingClientRect().width,height:toggle.getBoundingClientRect().height,cursor:getComputedStyle(toggle).cursor}:null,smartCursor:getComputedStyle(smart).cursor,accountCursor:getComputedStyle(account).cursor}})()`)
       Object.assign(result,{interactionMetrics})
+      const projectHeaderResult=await win.webContents.executeJavaScript(`(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));document.querySelector('.modal-actions button')?.click();[...document.querySelectorAll('.list-main')].at(-1)?.click();await wait(100);document.querySelector('.more')?.click();await wait(100);document.querySelector('.theme-swatches button[aria-label="林间"]')?.click();await wait(150);return{breadcrumbDepth:document.querySelectorAll('.breadcrumbs button').length,counts:document.querySelector('.header-counts')?.textContent,projectThemeApplied:document.querySelector('.shell')?.classList.contains('theme-forest')}})()`)
+      Object.assign(result,{projectHeaderResult})
       if(process.env.BEARAI_SMOKE_SCREENSHOT)await writeFile(process.env.BEARAI_SMOKE_SCREENSHOT,(await win.webContents.capturePage()).toPNG())
+      if(process.env.BEARAI_SMOKE_PROJECT_SCREENSHOT){await win.webContents.executeJavaScript(`document.querySelector('.modal-actions button')?.click();[...document.querySelectorAll('.list-main')].at(-1)?.click()`);await new Promise(resolve=>setTimeout(resolve,250));await writeFile(process.env.BEARAI_SMOKE_PROJECT_SCREENSHOT,(await win.webContents.capturePage()).toPNG())}
       console.log(`BEARAI_SMOKE ${JSON.stringify(result)}`)
       const layoutPass=result.layoutResult.nav.height>700&&result.layoutResult.nav.bottom<=result.layoutResult.viewport.height&&result.layoutResult.list.width>900&&result.layoutResult.bodyScroll.height===result.layoutResult.viewport.height
       const interactionPass=result.interactionMetrics.treeToggle?.width>=32&&result.interactionMetrics.treeToggle?.height>=32&&result.interactionMetrics.treeToggle?.cursor==='pointer'&&result.interactionMetrics.smartCursor==='pointer'&&result.interactionMetrics.accountCursor==='pointer'
-      app.exit(result.projectPersisted&&result.childProjectPersisted&&result.taskPersisted&&result.childPersisted&&result.subprojectDialogVisible&&result.subprojectCreated&&result.propertiesVisible&&result.accountMenuVisible&&result.settingsVisible&&result.detailInitiallyHidden&&layoutPass&&interactionPass?0:1)
+      const projectHeaderPass=result.projectHeaderResult.breadcrumbDepth>=2&&result.projectHeaderResult.counts?.includes('顶级')&&result.projectHeaderResult.counts?.includes('全部')&&result.projectHeaderResult.projectThemeApplied
+      app.exit(result.projectPersisted&&result.childProjectPersisted&&result.taskPersisted&&result.childPersisted&&result.subprojectDialogVisible&&result.subprojectCreated&&result.propertiesVisible&&result.accountMenuVisible&&result.settingsVisible&&result.detailInitiallyHidden&&layoutPass&&interactionPass&&projectHeaderPass?0:1)
     } catch (error) { console.error('BEARAI_SMOKE_FAILED',error);app.exit(1) }
   })
 }
@@ -48,6 +53,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:archive', (_event,projectId:string) => projectRepository.archive(projectId))
   ipcMain.handle('settings:get', async () => ({...(await settingsRepository.read()),workspacePath:dataRoot}))
   ipcMain.handle('settings:set-theme', (_event,theme) => settingsRepository.setTheme(theme))
+  ipcMain.handle('settings:set-preferences', (_event,patch) => settingsRepository.setPreferences(patch))
+  ipcMain.handle('settings:choose-theme-background', async event => {const owner=BrowserWindow.fromWebContents(event.sender),options={title:'选择自定义主题背景',properties:['openFile'] as ('openFile')[],filters:[{name:'图片',extensions:['png','jpg','jpeg','webp','gif','svg']}]};const result=owner?await dialog.showOpenDialog(owner,options):await dialog.showOpenDialog(options);return result.canceled?null:result.filePaths[0]??null})
   ipcMain.handle('settings:change-workspace', async event => {const owner=BrowserWindow.fromWebContents(event.sender),options={title:'选择新的熊智ToDo工作目录',properties:['openDirectory','createDirectory'] as ('openDirectory'|'createDirectory')[],buttonLabel:'选择并迁移'};const result=owner?await dialog.showOpenDialog(owner,options):await dialog.showOpenDialog(options);if(result.canceled||!result.filePaths[0])return{canceled:true};const migration=await migrateWorkspace(dataRoot,result.filePaths[0]);await settingsRepository.setWorkspace(result.filePaths[0]);configureRepositories(result.filePaths[0]);await workspaceRepository.initialize();await projectRepository.initialize();return{canceled:false,migration,workspacePath:dataRoot}})
   ipcMain.on('window:minimize', event => BrowserWindow.fromWebContents(event.sender)?.minimize())
   ipcMain.on('window:toggle-maximize', event => { const win=BrowserWindow.fromWebContents(event.sender);if(win)win.isMaximized()?win.unmaximize():win.maximize() })
