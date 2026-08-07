@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('bearTodo', {
   createTask: (title, projectId, parentId = null) => ipcRenderer.invoke('tasks:create', title, projectId, parentId),
   saveTask: (task, expectedRevision) => ipcRenderer.invoke('tasks:save', task, expectedRevision),
   listProjects: () => ipcRenderer.invoke('projects:list'),
+  listArchivedProjects: () => ipcRenderer.invoke('projects:list-archived'),
   createProject: (name, parentId = null) => ipcRenderer.invoke('projects:create', name, parentId),
   renameProject: (projectId, name) => ipcRenderer.invoke('projects:rename', projectId, name),
   updateProject: (projectId, patch) => ipcRenderer.invoke('projects:update', projectId, patch),
