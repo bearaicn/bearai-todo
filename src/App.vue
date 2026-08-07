@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import type { Task, TaskAttachment, TaskKind } from "./domain/task";
+import type { Task, TaskAttachment, TaskKind, UserIdentity } from "./domain/task";
 import type {
   Project,
   ProjectTheme,
@@ -51,6 +51,7 @@ type UiSettings = {
     backgroundImage: string | null;
   };
   projectDefaults: ProjectViewSettings;
+  currentUser?: UserIdentity;
 };
 const settingsOpen = ref(false),
   settings = ref<UiSettings | null>(null),
@@ -271,6 +272,7 @@ async function load() {
       api.listProjects(),
       api.getSettings(),
     ]);
+    if (settings.value && !settings.value.currentUser) settings.value.currentUser={id:'local-self',name:'本地用户',email:''};
     error.value = "";
   } catch (reason) {
     error.value = message(reason);
@@ -585,6 +587,7 @@ async function saveProperties() {
       description: draft.description,
       sidebarColor: draft.sidebarColor,
       theme: draft.theme,
+      git: draft.git,
       settingsMode: "own",
       viewSettings: { theme: draft.theme },
     });
@@ -639,7 +642,7 @@ async function savePreferences(
   patch: Partial<
     Pick<
       UiSettings,
-      "theme" | "sidebarWidth" | "customTheme" | "projectDefaults"
+      "theme" | "sidebarWidth" | "customTheme" | "projectDefaults" | "currentUser"
     >
   >,
 ) {
@@ -1283,6 +1286,7 @@ onMounted(load);
             </select></label
           >
         </section>
+        <section class="assignment-card"><AppIcon name="user" :size="18"/><span>分配给</span><select :value="selected.assigneeIds?.[0]??''" @change="save(selected,{assigneeIds:($event.target as HTMLSelectElement).value?[($event.target as HTMLSelectElement).value]:[]})"><option value="">未分配</option><option value="local-self">{{settings?.currentUser?.name??'本地用户（自己）'}}</option></select></section>
         <section class="attachment-card">
           <button class="attachment-add" @click="addAttachments">
             <AppIcon name="paperclip" /><span>添加附件</span>
@@ -1356,6 +1360,8 @@ onMounted(load);
         <AppIcon name="edit" /><span>重命名</span></button
       ><button @click="openProperties(contextMenu.project)">
         <AppIcon name="settings" /><span>属性</span></button
+      ><button @click="bridge().openProjectFolder(contextMenu.project.projectId);contextMenu=null">
+        <AppIcon name="folder" /><span>在资源管理器中打开</span></button
       ><button class="danger" @click="archiveProject(contextMenu.project)">
         <AppIcon name="archive" /><span>归档</span>
       </button>
@@ -1421,6 +1427,7 @@ onMounted(load);
               </button>
             </div>
           </fieldset>
+          <fieldset class="wide git-binding"><legend>Git 仓库（可选）</legend><p v-if="propertiesProject.parentId">子项目继承上级 Git 边界；只有没有 Git 上级的项目才可单独绑定。</p><label>远程地址<input :disabled="!!propertiesProject.parentId" :value="propertiesProject.git?.remoteUrl??''" placeholder="git@github.com:owner/repo.git" @input="propertiesProject.git={provider:propertiesProject.git?.provider??'other',branch:propertiesProject.git?.branch??'main',remoteUrl:($event.target as HTMLInputElement).value}"/></label><label>分支<input :disabled="!!propertiesProject.parentId" :value="propertiesProject.git?.branch??'main'" @input="propertiesProject.git={provider:propertiesProject.git?.provider??'other',remoteUrl:propertiesProject.git?.remoteUrl??'',branch:($event.target as HTMLInputElement).value}"/></label><button v-if="propertiesProject.git" type="button" @click="propertiesProject.git=null">取消绑定</button></fieldset>
         </div>
         <div class="modal-actions">
           <button type="button" @click="propertiesProject = null">取消</button
@@ -1488,6 +1495,7 @@ onMounted(load);
         <div class="settings-content">
           <template v-if="settingsSection === 'general'"
             ><h2>常规</h2>
+            <fieldset v-if="settings.currentUser"><legend>本机身份</legend><div class="form-grid"><label>显示名称<input v-model="settings.currentUser.name" @change="savePreferences({currentUser:settings.currentUser})"/></label><label>Git 邮箱<input v-model="settings.currentUser.email" type="email" placeholder="you@example.com" @change="savePreferences({currentUser:settings.currentUser})"/></label></div><p>身份 ID 固定为 {{settings.currentUser.id}}；密码和 Git 凭据由操作系统管理。</p></fieldset>
             <label>工作目录</label>
             <div class="path-box">{{ settings.workspacePath }}</div>
             <p>迁移校验成功后切换到新目录并删除旧工作目录。</p>

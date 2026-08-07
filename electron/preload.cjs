@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('bearTodo', {
   createProject: (name, parentId = null) => ipcRenderer.invoke('projects:create', name, parentId),
   renameProject: (projectId, name) => ipcRenderer.invoke('projects:rename', projectId, name),
   updateProject: (projectId, patch) => ipcRenderer.invoke('projects:update', projectId, dto(patch)),
+  openProjectFolder: projectId => ipcRenderer.invoke('projects:open-folder',projectId),
   moveProject: (projectId, parentId = null) => ipcRenderer.invoke('projects:move', projectId, parentId),
   archiveProject: (projectId) => ipcRenderer.invoke('projects:archive', projectId),
   getSettings: () => ipcRenderer.invoke('settings:get'),

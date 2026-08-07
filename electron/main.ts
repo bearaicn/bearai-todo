@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, protocol, shell } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { basename, extname, join, relative, resolve } from 'node:path'
 import { copyFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
@@ -80,6 +80,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('projects:create', (_event,name:string,parentId:string|null) => projectRepository.create(name,parentId))
   ipcMain.handle('projects:rename', (_event,projectId:string,name:string) => projectRepository.rename(projectId,name))
   ipcMain.handle('projects:update', (_event,projectId:string,patch) => projectRepository.update(projectId,patch))
+  ipcMain.handle('projects:open-folder',async (_event,projectId:string)=>{const project=await projectRepository.get(projectId);return shell.openPath(resolve(dataRoot,project.relativePath))})
   ipcMain.handle('projects:move', (_event,projectId:string,parentId:string|null) => projectRepository.move(projectId,parentId))
   ipcMain.handle('projects:archive', (_event,projectId:string) => projectRepository.archive(projectId))
   ipcMain.handle('settings:get', async () => ({...(await settingsRepository.read()),workspacePath:dataRoot}))

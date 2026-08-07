@@ -52,6 +52,7 @@ favorite: false
 due: null
 reminder: null
 repeat: null
+assigneeIds: [local-self]
 tags: []
 attachments: []
 createdAt: 2026-08-06T10:00:00+08:00
@@ -64,6 +65,10 @@ completedAt: null
 项目归属以文件所在目录为最终依据；`projectId` 用于冲突检测和外部移动后的重建校验。子任务也是独立 Markdown，通过 `parentId` 指向父任务。旧 task@1 的 `listId`、`important`、`myDay` 和 `steps` 只用于迁移：`important` 映射为 `favorite`，旧 steps 转为独立子任务文件，未知字段和正文必须保留。
 
 `kind` 为 `simple` 或 `advanced`，缺省按 `simple` 兼容。两种类型的备注都仍是 Markdown 正文：简单任务显示普通文本框，高级任务显示 Markdown 工具栏、源码和预览，不引入另一份富文本数据。`due`、`reminder` 使用带时区含义的 ISO 8601 时间；`repeat` v1 使用 `{ frequency: daily|weekly|monthly|yearly, interval: 1 }`。应用启动和任务保存时会为未来 24.8 天内的 reminder 安排 Windows 本地通知，完成任务会取消其调度。
+
+`assigneeIds` 保存稳定身份 ID；首期只有本机身份 `local-self`。评论单独位于 `.comments/<taskId>/<commentId>.md`，frontmatter 包含 `id/taskId/parentCommentId/authorId/revision/createdAt/updatedAt`，正文是评论内容。回复只通过 `parentCommentId` 建树，不递归嵌套写入同一文件。
+
+项目配置可选保存 `git: { remoteUrl, branch, provider }`。Git 绑定只属于同步边界项目；子项目继承，不重复保存绑定。密码、token、SSH 私钥绝不写入工作目录或设置文件。
 
 附件复制到 `.attachments/<task-uuid>/<attachment-id-prefix>--<原文件名>`。任务 frontmatter 中的 `attachments` 只保存稳定附件 ID、原文件名、相对路径、MIME、字节数和创建时间。主进程必须验证解析后的路径仍在工作目录 `.attachments` 内；渲染层不能读取任意本地路径。当前内置预览支持图片、音频、视频、PDF、文本、Markdown、JSON 和 CSV；其他格式或超过 25 MB 的文件显示不支持提示，但所有预览弹窗都提供“下载文件”（另存为）操作。
 

@@ -1,17 +1,18 @@
 {
-  "task": "完善高级任务工具栏、50%详情宽度和日期提醒选择",
-  "status": "in-progress-advanced-detail-and-scheduling-ui-verified",
+  "task": "建立用户、分配、评论与 Git 项目边界并完成第一批界面",
+  "status": "in-progress-git-collaboration-foundation-and-assignment-ui-verified",
   "filesModified": ["src/App.vue", "src/task-detail.css", "src/domain/task.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/components/AppIcon.vue", "electron/main.ts", "electron/preload.cjs", "tests/taskRepository.test.ts", "docs/"],
   "validation": {
-    "unitTests": "38/38 pass across 4 files, including four strategy-memory combinations, six fixed depths, migration cleanup and three-way independence",
+    "unitTests": "40/40 pass across 4 files, including assignee persistence and one Git binding per inherited subtree",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: fresh isolated workspace/userData; advanced panel ratio=0.5, 11 toolbar commands found, custom date picker opened and reminder shortcut persisted",
-    "visual": "fresh isolated 1440x900 Electron screenshot inspected: advanced panel uses right half, editor has visible border and fixed toolbar, scheduling rows align and remain fully clickable",
+    "electronUiSmoke": "pass: fresh isolated workspace/userData; scheduling controls, assignment row, editor, autosave and persistence passed",
+    "visual": "fresh isolated 1440x900 Electron screenshot inspected: reminder/due/repeat share one row and assignment is a separate aligned row",
+    "gitCollaboration": "implemented metadata and subtree constraint, explorer entry, local identity and assignee ids; sync adapter and comment UI remain intentionally pending",
     "expansionMigration": "pass: old expandMode and interim depth fields are read once, converted to the independent model and stripped from subsequent settings/project JSON writes",
     "migration": "pass: copied content verified and original directory removed",
     "projectPersistence": "pass: appearance, collapse and physical move survive repository reload"
   },
-  "timestamp": "2026-08-07T23:42:00+08:00",
-  "nextSteps": ["扩大 Milkdown 图片粘贴与 Office/网页样本矩阵并做动态加载", "补齐重复任务实例语义与外部文件监听", "准备 Windows 安装包和完整验收数据闭环"]
+  "timestamp": "2026-08-08T00:24:00+08:00",
+  "nextSteps": ["实现独立评论 Markdown 仓储、回复树和任务详情评论 UI", "实现 Git 状态/提交队列、隔离 fetch-merge-push 与冲突处理", "增加项目 Git 提供方探测和真实临时仓库集成测试"]
 }
