@@ -1,5 +1,11 @@
 # 工作目录与数据格式 v2
 
+## 本机设置与主题资源
+
+任务业务数据仍只以工作目录中的 Markdown 为权威。`settings.json` 是本机设置仓储，新增 `todayWindowDays`（0–30，默认 3）、`theme` 和 `customThemes[]`。每个自定义主题包含稳定 ID、名称、完整视觉 token、可选的 `bearai-theme://` 受管背景引用以及 `createdAt/updatedAt`；背景实体复制到 Electron userData 的 `theme-assets/`，不会保存临时路径、blob URL 或 base64。旧单一 `customTheme` 在读取时迁移成 `custom-migrated` 命名主题。
+
+`myDay` 旧 frontmatter 字段继续原样保留以兼容外部 Markdown，但新的“今日待办”查询不读取该字段，也不会把手动加入语义静默混入截止窗口。
+
 ## 目录结构
 
 ```text

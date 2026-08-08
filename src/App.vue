@@ -7,7 +7,8 @@ import type {
   ProjectViewSettings,
 } from "./domain/project";
 import { withoutLegacyExpansionSettings } from "./domain/project";
-import { childTasks, queryTasks } from "./domain/taskQueries";
+import { childTasks, dueState, queryTasks } from "./domain/taskQueries";
+import { builtInThemes, resolveThemeId, themeTokens, type CustomTheme } from "./domain/theme";
 import AppIcon from "./components/AppIcon.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import SchedulePicker from "./components/SchedulePicker.vue";
@@ -50,12 +51,15 @@ type UiSettings = {
     scene: string;
     backgroundImage: string | null;
   };
+  customThemes: CustomTheme[];
+  todayWindowDays: number;
   projectDefaults: ProjectViewSettings;
   currentUser?: UserIdentity;
 };
 const settingsOpen = ref(false),
   settings = ref<UiSettings | null>(null),
   migrating = ref(false);
+const transientSettingsPreview = ref<string | null>(null);
 const settingsSection = ref<"general" | "appearance" | "projects" | "archive">(
     "general",
   ),
@@ -205,7 +209,7 @@ const viewName = computed(
     "今日待办",
 );
 const shown = computed(() => {
-  let result = queryTasks(tasks.value, view.value);
+  let result = queryTasks(tasks.value, view.value,{todayWindowDays:settings.value?.todayWindowDays??3});
   const term = (listSearch.value || search.value).trim().toLocaleLowerCase();
   if (term)
     result = result.filter((task) =>
@@ -239,18 +243,14 @@ const visibleTaskRows = computed(() => {
 const children = computed(() =>
   selected.value ? childTasks(tasks.value, selected.value.id) : [],
 );
-const themeClass = computed(
-  () =>
-    `theme-${currentProject.value ? effectiveView.value.theme : (settings.value?.theme ?? "mist")}`,
-);
+const renderedThemeId=computed(()=>resolveThemeId(settingsOpen.value,transientSettingsPreview.value,currentProject.value?effectiveView.value.theme:null,settings.value?.theme??'mist'))
+const themeClass = computed(() => Object.hasOwn(builtInThemes,renderedThemeId.value)?`theme-${renderedThemeId.value}`:'theme-custom');
 const shellStyle = computed(() => {
-  const custom = settings.value?.customTheme,
-    image = custom?.backgroundImage?.replace(/\\/g, "/");
+  const tokens=themeTokens(renderedThemeId.value,settings.value?.customThemes),custom=settings.value?.customThemes.find(item=>item.id===renderedThemeId.value),image=custom?.backgroundImage;
   return {
     "--sidebar-width": `${settings.value?.sidebarWidth ?? 262}px`,
-    "--custom-accent": custom?.accent ?? "#4fa879",
-    "--custom-scene": custom?.scene ?? "#e9f1ef",
-    "--custom-image": image ? `url("file:///${image}")` : "none",
+    "--accent":tokens.accent,"--accent-soft":tokens.hover,"--accent-alt":tokens.accentAlt,"--scene":tokens.scene,"--scene-layer":tokens.sceneLayer,"--panel":tokens.panel,"--card":tokens.card,"--text":tokens.text,"--muted":tokens.muted,"--border":tokens.border,"--danger":tokens.danger,"--shadow-color":tokens.shadow,
+    "--custom-image": image ? `url("${image}")` : "none",
   };
 });
 function bridge() {
@@ -374,6 +374,7 @@ async function saveDate(field: "due" | "reminder", value: string | null) {
       [field]: value,
     });
 }
+function dueInfo(task:Task){if(!task.due)return null;const state=dueState(task.due,settings.value?.todayWindowDays??3),labels={outside:'窗口外',upcoming:`${settings.value?.todayWindowDays??3}天内`,today:'今天截止',overdue:'已超时'};return{state,label:labels[state],text:/^\d{4}-\d{2}-\d{2}$/.test(task.due)?task.due:new Date(task.due).toLocaleString('zh-CN')}}
 async function setKind(kind: TaskKind) {
   if (selected.value) {
     queueSave(selected.value, { kind });
@@ -615,6 +616,7 @@ async function openSettings() {
   closeMenus();
   try {
     settings.value = await bridge().getSettings();
+    transientSettingsPreview.value = settings.value.theme;
     settingsOpen.value = true;
   } catch (reason) {
     error.value = message(reason);
@@ -626,6 +628,7 @@ async function openArchive() {
     archived.value = await bridge().listArchivedProjects();
     settingsSection.value = "archive";
     settings.value = await bridge().getSettings();
+    transientSettingsPreview.value = settings.value.theme;
     settingsOpen.value = true;
   } catch (reason) {
     error.value = message(reason);
@@ -633,16 +636,21 @@ async function openArchive() {
 }
 async function setGlobalTheme(theme: ProjectTheme) {
   try {
+    transientSettingsPreview.value = theme;
     settings.value = await bridge().setPreferences({ theme });
   } catch (reason) {
     error.value = message(reason);
   }
 }
+function closeSettings(){settingsOpen.value=false;transientSettingsPreview.value=null}
+async function createCustomTheme(copy?:CustomTheme){if(!settings.value)return;const name=window.prompt('自定义主题名称',copy?`${copy.name} 副本`:'我的主题')?.trim();if(!name)return;const now=new Date().toISOString(),id=`theme-${crypto.randomUUID()}`,theme:CustomTheme={id,name,tokens:{...(copy?.tokens??builtInThemes.mist.tokens)},backgroundImage:copy?.backgroundImage??null,createdAt:now,updatedAt:now};await savePreferences({customThemes:[...settings.value.customThemes,theme],theme:id});transientSettingsPreview.value=id}
+async function updateCustomTheme(theme:CustomTheme){if(!settings.value)return;theme.updatedAt=new Date().toISOString();await savePreferences({customThemes:[...settings.value.customThemes]});transientSettingsPreview.value=theme.id}
+async function deleteCustomTheme(theme:CustomTheme){if(!settings.value||!window.confirm(`删除自定义主题“${theme.name}”？所有使用位置将明确回退到晨雾。`))return;for(const project of projects.value.filter(item=>item.viewSettings?.theme===theme.id)){Object.assign(project,await bridge().updateProject(project.projectId,{viewSettings:{...project.viewSettings,theme:'mist'}}))}const customThemes=settings.value.customThemes.filter(item=>item.id!==theme.id),fallback=settings.value.theme===theme.id?'mist':settings.value.theme,projectDefaults=settings.value.projectDefaults.theme===theme.id?{...settings.value.projectDefaults,theme:'mist'}:settings.value.projectDefaults;await savePreferences({customThemes,theme:fallback,projectDefaults});transientSettingsPreview.value=fallback}
 async function savePreferences(
   patch: Partial<
     Pick<
       UiSettings,
-      "theme" | "sidebarWidth" | "customTheme" | "projectDefaults" | "currentUser"
+      "theme" | "sidebarWidth" | "customTheme" | "customThemes" | "todayWindowDays" | "projectDefaults" | "currentUser"
     >
   >,
 ) {
@@ -692,14 +700,10 @@ async function resetProjectView() {
     error.value = message(reason);
   }
 }
-async function chooseBackground() {
+async function chooseBackground(theme:CustomTheme) {
   try {
-    const path = await bridge().chooseThemeBackground();
-    if (path && settings.value)
-      await savePreferences({
-        theme: "custom",
-        customTheme: { ...settings.value.customTheme, backgroundImage: path },
-      });
+    const path = await bridge().chooseThemeBackground(theme.id);
+    if (path && settings.value){theme.backgroundImage=path;await updateCustomTheme(theme)}
   } catch (reason) {
     error.value = message(reason);
   }
@@ -1054,15 +1058,7 @@ onMounted(load);
             <button
               v-for="theme in [
                 ...themes,
-                ...(settings?.customTheme
-                  ? [
-                      {
-                        id: 'custom' as ProjectTheme,
-                        name: '自定义',
-                        color: settings.customTheme.accent,
-                      },
-                    ]
-                  : []),
+                ...(settings?.customThemes.map(custom=>({id:custom.id as ProjectTheme,name:custom.name,color:custom.tokens.accent}))??[]),
               ]"
               :key="theme.id"
               :style="{ background: theme.color }"
@@ -1158,7 +1154,7 @@ onMounted(load);
                 )?.name ||
                 "任务"
               }}</small
-            >
+            ><span v-if="dueInfo(row.task)" class="due-badge" :class="`due-${dueInfo(row.task)!.state}`" :title="`截止：${dueInfo(row.task)!.text}`"><AppIcon name="calendar" :size="12"/>{{dueInfo(row.task)!.label}} · {{dueInfo(row.task)!.text}}</span>
           </div>
           <button
             class="star"
@@ -1417,7 +1413,7 @@ onMounted(load);
             <legend>项目主题</legend>
             <div class="theme-options">
               <button
-                v-for="theme in themes"
+                v-for="theme in [...themes,...(settings?.customThemes.map(custom=>({id:custom.id,name:custom.name,color:custom.tokens.accent}))??[])]"
                 :key="theme.id"
                 type="button"
                 :class="{ selected: propertiesProject.theme === theme.id }"
@@ -1462,7 +1458,7 @@ onMounted(load);
     <div
       v-if="settingsOpen && settings"
       class="modal-backdrop"
-      @click.self="settingsOpen = false"
+      @click.self="closeSettings"
     >
       <section class="modal settings-modal settings-layout">
         <nav>
@@ -1499,6 +1495,7 @@ onMounted(load);
             <label>工作目录</label>
             <div class="path-box">{{ settings.workspacePath }}</div>
             <p>迁移校验成功后切换到新目录并删除旧工作目录。</p>
+            <label>今日待办截止窗口（天）<input v-model.number="settings.todayWindowDays" type="number" min="0" max="30" @change="savePreferences({todayWindowDays:settings.todayWindowDays})"/></label>
             <button
               class="primary"
               :disabled="migrating"
@@ -1534,42 +1531,10 @@ onMounted(load);
                 >
                   <i :style="{ background: theme.color }"></i
                   >{{ theme.name }}</button
-                ><button
-                  :class="{ selected: settings.theme === 'custom' }"
-                  @click="savePreferences({ theme: 'custom' })"
-                >
-                  <i :style="{ background: settings.customTheme.accent }"></i
-                  >自定义
-                </button>
+                ><button v-for="custom in settings.customThemes" :key="custom.id" :class="{selected:settings.theme===custom.id}" @click="setGlobalTheme(custom.id)"><i :style="{background:custom.tokens.accent}"></i>{{custom.name}}</button>
               </div>
             </fieldset>
-            <fieldset class="custom-theme">
-              <legend>自定义主题</legend>
-              <div class="custom-colors">
-                <label
-                  >强调色<input
-                    v-model="settings.customTheme.accent"
-                    type="color"
-                    @change="
-                      savePreferences({
-                        theme: 'custom',
-                        customTheme: settings.customTheme,
-                      })
-                    " /></label
-                ><label
-                  >背景色<input
-                    v-model="settings.customTheme.scene"
-                    type="color"
-                    @change="
-                      savePreferences({
-                        theme: 'custom',
-                        customTheme: settings.customTheme,
-                      })
-                    "
-                /></label>
-              </div>
-              <button @click="chooseBackground">选择本地背景图片</button>
-            </fieldset></template
+            <fieldset class="custom-theme-manager"><legend>自定义主题</legend><button class="primary" @click="createCustomTheme()">新增主题</button><article v-for="custom in settings.customThemes" :key="custom.id" class="custom-theme-card"><input v-model="custom.name" aria-label="主题名称" @change="updateCustomTheme(custom)"/><div class="token-colors"><label v-for="field in ['scene','sceneLayer','panel','card','hover','accent','accentAlt','text','muted','border','danger','shadow']" :key="field">{{field}}<input v-model="custom.tokens[field as keyof typeof custom.tokens]" type="color" @change="updateCustomTheme(custom)"/></label></div><div class="custom-theme-actions"><button @click="setGlobalTheme(custom.id)">应用</button><button @click="createCustomTheme(custom)">复制</button><button @click="chooseBackground(custom)">{{custom.backgroundImage?'替换背景':'选择背景'}}</button><button v-if="custom.backgroundImage" @click="custom.backgroundImage=null;updateCustomTheme(custom)">移除背景</button><button class="danger" @click="deleteCustomTheme(custom)">删除</button></div></article></fieldset></template
           ><template v-else-if="settingsSection === 'projects'"
             ><h2>全项目默认设置</h2>
             <label
@@ -1615,7 +1580,7 @@ onMounted(load);
                 >
                   {{ theme.name }}
                 </option>
-                <option value="custom">自定义</option>
+                <option v-for="custom in settings.customThemes" :key="custom.id" :value="custom.id">{{custom.name}}</option>
               </select></label
             ></template
           ><template v-else
@@ -1647,7 +1612,7 @@ onMounted(load);
             </article></template
           >
           <div class="modal-actions">
-            <button @click="settingsOpen = false">关闭</button>
+            <button @click="closeSettings">关闭</button>
           </div>
         </div>
       </section>

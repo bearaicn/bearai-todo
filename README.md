@@ -8,6 +8,8 @@ Windows 优先、本地优先的 Markdown 待办应用。任务、列表、步�
 
 MVP 持续开发中：已建立根工作目录、项目/子项目文件夹、task@2 Markdown 仓储、原子写入与 revision 冲突保护，以及今日待办、收藏、计划内、已完成和三栏 Electron 界面。项目配置使用 JSON，任务与子任务使用独立 Markdown；MVP 不使用数据库。详见 [实施进度](docs/IMPLEMENTATION.md)。
 
+“今日待办”按本地日历日列出已超时及未来可配置天数（默认 3 天）内截止的未完成任务，不再等同于全部未完成任务。设置中的主题和截止窗口保存在本机 `settings.json`；自定义主题支持多个命名配置，背景图片复制到 Electron userData 下的受管主题资源目录，不进入任务 Markdown。
+
 ```powershell
 npm install
 npm test

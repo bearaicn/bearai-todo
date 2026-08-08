@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('bearTodo', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setTheme: theme => ipcRenderer.invoke('settings:set-theme', theme),
   setPreferences: patch => ipcRenderer.invoke('settings:set-preferences', dto(patch)),
-  chooseThemeBackground: () => ipcRenderer.invoke('settings:choose-theme-background'),
+  chooseThemeBackground: themeId => ipcRenderer.invoke('settings:choose-theme-background', String(themeId)),
   changeWorkspace: () => ipcRenderer.invoke('settings:change-workspace'),
   minimizeWindow: () => ipcRenderer.send('window:minimize'),
   toggleMaximizeWindow: () => ipcRenderer.send('window:toggle-maximize'),
