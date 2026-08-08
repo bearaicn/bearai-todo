@@ -1,16 +1,15 @@
 {
-  "task": "重构主题系统、今日待办截止窗口与日期选择",
-  "status": "in-progress-theme-today-and-schedule-qa",
-  "filesModified": ["src/App.vue", "src/style.css", "src/domain/theme.ts", "src/domain/taskQueries.ts", "src/infrastructure/settingsRepository.ts", "src/components/SchedulePicker.vue", "electron/main.ts", "electron/preload.cjs", "tests/theme.test.ts", "tests/taskBehavior.test.ts", "tests/workspaceRepository.test.ts", "README.md", "docs/"],
+  "task": "修复任务展开菜单字号与自定义主题创建交互",
+  "status": "in-progress-after-ui-bugfix",
+  "filesModified": ["src/App.vue", "src/style.css", "electron/main.ts", "development-log.json"],
   "validation": {
-    "unitTests": "47/47 pass across 5 files, including theme token distinction, preview priority, local-calendar due windows and settings migration",
+    "unitTests": "47/47 pass across 5 files",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: isolated workspace/userData; reminder and due Teleport pickers opened, reminder persisted, autosave and attachment preview passed",
-    "visual": "1280x800 settings overlay and scheduling screenshots inspected; background remains recognizable and task layout has no horizontal overflow",
-    "settingsPersistence": "named custom themes, full tokens and 0-30 day deadline window persist in settings.json; no task business copy",
-    "compatibility": "legacy custom slot migrates to custom-migrated; legacy myDay field is preserved but ignored by the new due-window query"
+    "electronUiSmoke": "pass: isolated workspace/userData; project menu label, expansion label and select all compute to 14px; custom theme composer opens and submitted theme persists",
+    "visual": "2048px isolated Electron screenshots inspected: expansion row aligns with siblings and custom-theme composer is visible, bordered and readable",
+    "regression": "existing reminder/due picker, autosave, attachment preview, project header, expansion options and persistence smoke assertions remain green"
   },
-  "timestamp": "2026-08-08T13:30:00+08:00",
+  "timestamp": "2026-08-08T16:12:00+08:00",
   "nextSteps": ["实现独立评论 Markdown 仓储、回复树和任务详情评论 UI", "实现 Git 状态/提交队列、隔离 fetch-merge-push 与冲突处理", "增加项目 Git 提供方探测和真实临时仓库集成测试"]
 }

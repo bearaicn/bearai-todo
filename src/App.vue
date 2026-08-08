@@ -59,6 +59,8 @@ type UiSettings = {
 const settingsOpen = ref(false),
   settings = ref<UiSettings | null>(null),
   migrating = ref(false);
+const customThemeComposerOpen = ref(false),
+  newCustomThemeName = ref("");
 const transientSettingsPreview = ref<string | null>(null);
 const settingsSection = ref<"general" | "appearance" | "projects" | "archive">(
     "general",
@@ -643,7 +645,10 @@ async function setGlobalTheme(theme: ProjectTheme) {
   }
 }
 function closeSettings(){settingsOpen.value=false;transientSettingsPreview.value=null}
-async function createCustomTheme(copy?:CustomTheme){if(!settings.value)return;const name=window.prompt('自定义主题名称',copy?`${copy.name} 副本`:'我的主题')?.trim();if(!name)return;const now=new Date().toISOString(),id=`theme-${crypto.randomUUID()}`,theme:CustomTheme={id,name,tokens:{...(copy?.tokens??builtInThemes.mist.tokens)},backgroundImage:copy?.backgroundImage??null,createdAt:now,updatedAt:now};await savePreferences({customThemes:[...settings.value.customThemes,theme],theme:id});transientSettingsPreview.value=id}
+function createCustomTheme(copy?:CustomTheme){if(copy){void persistCustomTheme(`${copy.name} 副本`,copy);return}newCustomThemeName.value='我的主题';customThemeComposerOpen.value=true}
+async function persistCustomTheme(name:string,copy?:CustomTheme){if(!settings.value)return;const normalizedName=name.trim();if(!normalizedName){error.value='请输入主题名称';return}const now=new Date().toISOString(),id=`theme-${crypto.randomUUID()}`,theme:CustomTheme={id,name:normalizedName,tokens:{...(copy?.tokens??builtInThemes.mist.tokens)},backgroundImage:copy?.backgroundImage??null,createdAt:now,updatedAt:now};await savePreferences({customThemes:[...settings.value.customThemes,theme],theme:id});transientSettingsPreview.value=id;customThemeComposerOpen.value=false;newCustomThemeName.value=''}
+async function confirmCreateCustomTheme(){await persistCustomTheme(newCustomThemeName.value)}
+function cancelCreateCustomTheme(){customThemeComposerOpen.value=false;newCustomThemeName.value=''}
 async function updateCustomTheme(theme:CustomTheme){if(!settings.value)return;theme.updatedAt=new Date().toISOString();await savePreferences({customThemes:[...settings.value.customThemes]});transientSettingsPreview.value=theme.id}
 async function deleteCustomTheme(theme:CustomTheme){if(!settings.value||!window.confirm(`删除自定义主题“${theme.name}”？所有使用位置将明确回退到晨雾。`))return;for(const project of projects.value.filter(item=>item.viewSettings?.theme===theme.id)){Object.assign(project,await bridge().updateProject(project.projectId,{viewSettings:{...project.viewSettings,theme:'mist'}}))}const customThemes=settings.value.customThemes.filter(item=>item.id!==theme.id),fallback=settings.value.theme===theme.id?'mist':settings.value.theme,projectDefaults=settings.value.projectDefaults.theme===theme.id?{...settings.value.projectDefaults,theme:'mist'}:settings.value.projectDefaults;await savePreferences({customThemes,theme:fallback,projectDefaults});transientSettingsPreview.value=fallback}
 async function savePreferences(
@@ -1534,7 +1539,7 @@ onMounted(load);
                 ><button v-for="custom in settings.customThemes" :key="custom.id" :class="{selected:settings.theme===custom.id}" @click="setGlobalTheme(custom.id)"><i :style="{background:custom.tokens.accent}"></i>{{custom.name}}</button>
               </div>
             </fieldset>
-            <fieldset class="custom-theme-manager"><legend>自定义主题</legend><button class="primary" @click="createCustomTheme()">新增主题</button><article v-for="custom in settings.customThemes" :key="custom.id" class="custom-theme-card"><input v-model="custom.name" aria-label="主题名称" @change="updateCustomTheme(custom)"/><div class="token-colors"><label v-for="field in ['scene','sceneLayer','panel','card','hover','accent','accentAlt','text','muted','border','danger','shadow']" :key="field">{{field}}<input v-model="custom.tokens[field as keyof typeof custom.tokens]" type="color" @change="updateCustomTheme(custom)"/></label></div><div class="custom-theme-actions"><button @click="setGlobalTheme(custom.id)">应用</button><button @click="createCustomTheme(custom)">复制</button><button @click="chooseBackground(custom)">{{custom.backgroundImage?'替换背景':'选择背景'}}</button><button v-if="custom.backgroundImage" @click="custom.backgroundImage=null;updateCustomTheme(custom)">移除背景</button><button class="danger" @click="deleteCustomTheme(custom)">删除</button></div></article></fieldset></template
+            <fieldset class="custom-theme-manager"><legend>自定义主题</legend><button type="button" class="primary" @click="createCustomTheme()">新增主题</button><form v-if="customThemeComposerOpen" class="custom-theme-composer" @submit.prevent="confirmCreateCustomTheme"><input v-model="newCustomThemeName" aria-label="新主题名称" placeholder="输入主题名称" autofocus/><button type="submit" class="primary">创建</button><button type="button" @click="cancelCreateCustomTheme">取消</button></form><article v-for="custom in settings.customThemes" :key="custom.id" class="custom-theme-card"><input v-model="custom.name" aria-label="主题名称" @change="updateCustomTheme(custom)"/><div class="token-colors"><label v-for="field in ['scene','sceneLayer','panel','card','hover','accent','accentAlt','text','muted','border','danger','shadow']" :key="field">{{field}}<input v-model="custom.tokens[field as keyof typeof custom.tokens]" type="color" @change="updateCustomTheme(custom)"/></label></div><div class="custom-theme-actions"><button @click="setGlobalTheme(custom.id)">应用</button><button @click="createCustomTheme(custom)">复制</button><button @click="chooseBackground(custom)">{{custom.backgroundImage?'替换背景':'选择背景'}}</button><button v-if="custom.backgroundImage" @click="custom.backgroundImage=null;updateCustomTheme(custom)">移除背景</button><button class="danger" @click="deleteCustomTheme(custom)">删除</button></div></article></fieldset></template
           ><template v-else-if="settingsSection === 'projects'"
             ><h2>全项目默认设置</h2>
             <label
