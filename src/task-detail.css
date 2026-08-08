@@ -29,8 +29,10 @@
   background: rgba(255, 255, 255, 0.78);
 }
 .schedule-card {
-  overflow: hidden;
+  position:relative;
+  overflow: visible;
 }
+.schedule-card:has(.schedule-quick-menu){z-index:30}
 .detail.advanced .schedule-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}.detail.advanced .schedule-picker,.detail.advanced .schedule-card>label{border-bottom:0;border-right:1px solid rgba(92,118,108,.1)}.detail.advanced .schedule-card>label:last-child{border-right:0}.detail.advanced .schedule-trigger,.detail.advanced .schedule-card>label{grid-template-columns:22px minmax(68px,auto) minmax(0,1fr);padding-inline:11px}
 .assignment-card{min-height:48px;display:grid;grid-template-columns:22px 92px 1fr;align-items:center;gap:8px;padding:0 14px;margin-bottom:10px;border:1px solid rgba(92,118,108,.14);border-radius:13px;background:rgba(255,255,255,.78)}.assignment-card select{min-width:0;padding:7px;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--muted)}
 .git-binding{display:grid;grid-template-columns:1fr 1fr;gap:10px}.git-binding p,.git-binding button{grid-column:1/-1}.git-binding p{margin:0;color:var(--muted);font-size:11px}.git-binding button{justify-self:start;padding:7px 10px;border:1px solid rgba(70,90,83,.18);border-radius:8px;background:white}

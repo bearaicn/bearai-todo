@@ -1,7 +1,7 @@
 export type TaskStatus = 'active' | 'completed'
 export type TaskKind = 'simple'|'advanced'
 export type RepeatRule = {frequency:'daily'|'weekly'|'monthly'|'yearly';interval:number}
-export interface TaskAttachment {id:string;name:string;relativePath:string;mime:string;size:number;createdAt:string}
+export interface TaskAttachment {id:string;name:string;relativePath:string;mime:string;size:number;createdAt:string;role?:'attachment'|'inline'}
 export interface UserIdentity {id:string;name:string;email:string}
 export interface TaskComment {id:string;taskId:string;parentCommentId:string|null;authorId:string;body:string;createdAt:string;updatedAt:string;revision:number}
 export interface Task {

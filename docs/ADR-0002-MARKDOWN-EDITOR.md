@@ -12,6 +12,8 @@ Milkdown 对 Vue 3 有官方支持；Crepe 提供标题、粗体、斜体、删�
 
 上传图片由主进程复制到 `.attachments/<taskId>/` 并追加 attachment 元数据。编辑期间使用受限 `bearai-asset://attachment/<attachmentId>`；协议处理器只能按 Markdown 仓储中已登记的附件 ID 解析，并再次执行附件根目录边界校验。进入自动保存队列前，运行时 URL 转回 `.attachments/...` 相对路径；重新打开时反向映射。因此磁盘正文禁止 base64、blob URL、绝对路径和应用协议 URL。
 
+正文图片的附件元数据标为 `role: inline`，因此不在普通附件列表重复展示；这只是展示分类，不改变文件归属、路径校验或保守恢复语义。
+
 从 HTML/Office 粘贴时由 ProseMirror/Remark 转换可识别结构；无法可靠转换的复杂样式降级为文本和基础 Markdown。删除正文图片只删除引用，不自动删除附件实体，避免不可恢复的数据丢失；实体继续显示在附件区，由用户明确移除。
 
 ## 代价

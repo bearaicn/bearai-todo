@@ -448,7 +448,7 @@ function markdownPreview(source: string) {
 }
 function editorMarkdown(task:Task){return task.attachments.reduce((text,item)=>text.replaceAll(item.relativePath,`bearai-asset://attachment/${item.id}`),task.note)}
 function persistedMarkdown(task:Task,markdown:string){return task.attachments.reduce((text,item)=>text.replaceAll(`bearai-asset://attachment/${item.id}`,item.relativePath),markdown)}
-async function uploadEditorImage(file:File){const task=selected.value;if(!task)throw new Error('没有选中的任务');const attachment=await bridge().importEditorImage(task.id,file.name,file.type,await file.arrayBuffer());task.attachments=[...task.attachments,attachment];queueSave(task,{attachments:task.attachments});await flushSave(task);if(saveState.value==='failed')throw new Error(saveFailure.value);return `bearai-asset://attachment/${attachment.id}`}
+async function uploadEditorImage(file:File){const task=selected.value;if(!task)throw new Error('没有选中的任务');const attachment={...(await bridge().importEditorImage(task.id,file.name,file.type,await file.arrayBuffer())),role:'inline' as const};task.attachments=[...task.attachments,attachment];queueSave(task,{attachments:task.attachments});await flushSave(task);if(saveState.value==='failed')throw new Error(saveFailure.value);return `bearai-asset://attachment/${attachment.id}`}
 function editorChanged(markdown:string){const task=selected.value;if(task)queueSave(task,{note:persistedMarkdown(task,markdown)})}
 async function toggleDone(task: Task) {
   await save(task, {
@@ -1292,7 +1292,7 @@ onMounted(load);
             <AppIcon name="paperclip" /><span>添加附件</span>
           </button>
           <article
-            v-for="attachment in selected.attachments"
+            v-for="attachment in selected.attachments.filter(item=>item.role!=='inline')"
             :key="attachment.id"
             class="attachment-row"
             @click="previewAttachment(attachment)"
