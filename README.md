@@ -20,3 +20,7 @@ npm run dev
 侧边栏底部的本地用户头像菜单可打开设置。切换工作目录时应用只接受空目标目录，先完整复制并校验项目与任务数量及根配置，再删除旧工作目录、写入 `%APPDATA%/BearAI ToDo/settings.json` 并切换；不会保留旧目录副本。默认项目是工作目录下真实的 `默认项目/` 文件夹及 `.bearai-project.json`。
 
 开发模式默认使用 `%APPDATA%/BearAI ToDo/data`；可通过 `BEARAI_TODO_DATA_DIR` 指向测试目录。项目不配置远程，也不会自动上传数据。
+
+## 许可证
+
+本项目代码采用 [GNU General Public License Version 3，GPL-3.0-only](LICENSE) 授权。BearAI 名称、Logo 和其他品牌标识不因软件代码许可证而当然获得授权；用户在本地工作目录中创建的任务、附件及其他数据也不属于本项目代码许可证的授权范围。
