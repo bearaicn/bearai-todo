@@ -7,6 +7,7 @@ import {
   WorkspaceRepository,
 } from "../src/infrastructure/workspaceRepository";
 import { WorkspaceRegistryRepository } from "../src/infrastructure/workspaceRegistryRepository";
+import {TaskRepository} from '../src/infrastructure/taskRepository'
 import {
   migrateWorkspace,
   SettingsRepository,
@@ -344,6 +345,7 @@ describe("workspace and project folders", () => {
       b = await projects.create("父B", null),
       child = await projects.create("子", a.projectId),
       grandchild = await projects.create("孙", child.projectId);
+    const taskRepository=new TaskRepository(root),childTask=await taskRepository.create('子项目任务',child.projectId),grandchildTask=await taskRepository.create('孙项目任务',grandchild.projectId)
     await expect(
       projects.moveChecked({
         projectId: a.projectId,
@@ -377,6 +379,10 @@ describe("workspace and project folders", () => {
     expect((await stat(join(root, "父B", "子", "孙"))).isDirectory()).toBe(
       true,
     );
+    expect((await taskRepository.list()).filter(task=>[childTask.id,grandchildTask.id].includes(task.id))).toHaveLength(2)
+    expect((await taskRepository.get(childTask.id)).projectId).toBe(child.projectId)
+    expect((await taskRepository.get(grandchildTask.id)).projectId).toBe(grandchild.projectId)
+    await expect(projects.archive(b.projectId,999)).rejects.toThrow('revision')
   });
   it("keeps only user and workspace locations in the runtime registry",async()=>{const first=await mkdtemp(join(tmpdir(),"bear-space-a-")),second=await mkdtemp(join(tmpdir(),"bear-space-b-")),runtime=await mkdtemp(join(tmpdir(),"bear-runtime-"));roots.push(first,second,runtime);await new WorkspaceRepository(first).initialize("工作区一");await new WorkspaceRepository(second).initialize("工作区二");const registry=new WorkspaceRegistryRepository(join(runtime,"workspaces.json"));await registry.ensure(first);let value=await registry.add(second,true);expect(value.workspaces.map(item=>item.name)).toEqual(["工作区一","工作区二"]);expect(value.activeWorkspaceId).toBe(value.workspaces[1].workspaceId);expect(value).not.toHaveProperty("theme");expect(value).not.toHaveProperty("projectDefaults");value=await registry.rename(value.workspaces[1].workspaceId,"第二仓库");expect((await new WorkspaceRepository(second).read()).name).toBe("第二仓库");await registry.setUser({id:"local-self",name:"竹子",email:"zhu@example.com"});expect((await registry.read()).user.name).toBe("竹子")});
   it("switches and unregisters workspaces without deleting their data",async()=>{const first=await mkdtemp(join(tmpdir(),"bear-space-a-")),second=await mkdtemp(join(tmpdir(),"bear-space-b-")),runtime=await mkdtemp(join(tmpdir(),"bear-runtime-"));roots.push(first,second,runtime);const one=await new WorkspaceRepository(first).initialize("一"),two=await new WorkspaceRepository(second).initialize("二"),registry=new WorkspaceRegistryRepository(join(runtime,"workspaces.json"));await registry.add(first,true);await registry.add(second);await registry.activate(two.workspaceId);const removed=await registry.remove(two.workspaceId);expect(removed.activeWorkspaceId).toBe(one.workspaceId);expect((await stat(join(second,".bearai-workspace.json"))).isFile()).toBe(true);await expect(registry.remove(one.workspaceId)).rejects.toThrow("至少保留")});

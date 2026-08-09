@@ -152,6 +152,34 @@ describe("Markdown task repository", () => {
       assigneeIds: ["local-self"],
     });
   });
+  it("completes a recurring Markdown task and atomically creates its next occurrence", async () => {
+    const { repository } = await repo();
+    const task = await repository.create("每周回顾");
+    const scheduled = await repository.save({
+      ...task,
+      due: "2026-08-09",
+      reminder: "2026-08-09T09:00:00.000Z",
+      repeat: { frequency: "weekly", interval: 1 },
+      favorite: true,
+      tags: ["复盘"],
+      note: "保留为下一实例模板",
+    }, task.revision);
+    const result = await repository.complete(scheduled.id, scheduled.revision);
+    expect(result.completed).toMatchObject({ id: scheduled.id, status: "completed" });
+    expect(result.next).toMatchObject({
+      status: "active",
+      due: "2026-08-16",
+      reminder: null,
+      repeat: { frequency: "weekly", interval: 1 },
+      favorite: true,
+      tags: ["复盘"],
+      attachments: [],
+    });
+    expect(result.next?.note.trim()).toBe("保留为下一实例模板");
+    expect(result.next?.id).not.toBe(scheduled.id);
+    const persisted = await repository.list();
+    expect(persisted.filter(item => item.title === "每周回顾")).toHaveLength(2);
+  });
   it("persists inline editor image ownership separately from visible attachments", async () => {
     const { repository } = await repo();
     const task = await repository.create("图片任务"),
@@ -261,5 +289,29 @@ describe("Markdown task repository", () => {
         name.endsWith(".md"),
       ),
     ).toHaveLength(2);
+  });
+  it("voids and restores a task with revision-safe Markdown audit history",async()=>{
+    const {root,repository}=await repo(),task=await repository.create('可作废任务'),result=await repository.void(task.id,task.revision,'仅当天有效');
+    expect(result.voided).toMatchObject({status:'voided',voidReason:'仅当天有效'});expect(result.voided.voidedAt).toBeTruthy();expect(result.voided.statusHistory?.at(-1)).toMatchObject({status:'voided',reason:'仅当天有效'});
+    await expect(repository.restoreVoided(task.id,task.revision)).rejects.toThrow('外部修改');
+    const restarted=new TaskRepository(root),restored=await restarted.restoreVoided(task.id,result.voided.revision);expect(restored).toMatchObject({status:'active',voidedAt:null,voidReason:'仅当天有效'});expect(restored.statusHistory?.map(item=>item.status)).toEqual(['voided','active']);
+  });
+  it("voids one recurring occurrence and creates exactly one clean next occurrence",async()=>{
+    const {repository}=await repo(),task=await repository.create('每日实例'),scheduled=await repository.save({...task,due:'2026-08-09',validOn:'2026-08-09',rollover:'forbidden',instanceKey:'daily:2026-08-09',seriesKey:'daily',repeat:{frequency:'daily',interval:1}},task.revision),first=await repository.void(scheduled.id,scheduled.revision,'跨日作废');
+    expect(first.voided.status).toBe('voided');expect(first.next).toMatchObject({status:'active',due:'2026-08-10',validOn:'2026-08-10',instanceKey:'daily:2026-08-10',recurrenceSourceId:scheduled.id,voidedAt:null});
+    const retry=await repository.void(scheduled.id,first.voided.revision,'重复调用');expect(retry.next?.id).toBe(first.next?.id);expect((await repository.list()).filter(item=>item.title==='每日实例')).toHaveLength(2);
+    const restored=await repository.restoreVoided(scheduled.id,first.voided.revision),completed=await repository.complete(scheduled.id,restored.revision);expect(completed.next?.id).toBe(first.next?.id);expect((await repository.list()).filter(item=>item.title==='每日实例')).toHaveLength(2);
+  });
+  it("ensures instances idempotently and voids only expired forbidden active instances",async()=>{
+    const {repository}=await repo(),defaultProject=(await repository.create('定位项目')).projectId,request={title:'幂等实例',projectId:defaultProject,instanceKey:'brief:2026-08-08',validOn:'2026-08-08',rollover:'forbidden' as const};
+    const [first,second]=await Promise.all([repository.ensureInstance(request),repository.ensureInstance(request)]);expect(first.created).toBe(true);expect(second).toMatchObject({created:false,task:{id:first.task.id}});
+    await repository.ensureInstance({...request,title:'允许顺延',instanceKey:'carry:2026-08-08',rollover:'allowed'});
+    await repository.ensureInstance({...request,title:'今天实例',instanceKey:'brief:2026-08-09',validOn:'2026-08-09'});
+    const voided=await repository.voidExpired('2026-08-09');expect(voided.map(item=>item.id)).toEqual([first.task.id]);expect((await repository.get(first.task.id)).status).toBe('voided');expect(await repository.voidExpired('2026-08-09')).toEqual([]);
+  });
+  it("writes a complete instance once and leaves no half-instance after an atomic failure",async()=>{
+    const root=await mkdtemp(join(tmpdir(),'bear-todo-instance-fault-'));roots.push(root);const project=(await new ProjectRepository(root).initialize())[0],failure=new TaskRepository(root,{beforeAtomicRename:()=>{throw new Error('故障注入')}}),request={title:'故障恢复实例',projectId:project.projectId,instanceKey:'fault:2026-08-09',validOn:'2026-08-09',rollover:'forbidden' as const};
+    await expect(failure.ensureInstance(request)).rejects.toThrow('故障注入');const afterFailure=await readdir(join(root,project.relativePath));expect(afterFailure.filter(name=>name.endsWith('.md')||name.includes('.tmp'))).toEqual([]);
+    const retry=new TaskRepository(root),created=await retry.ensureInstance(request),again=await retry.ensureInstance(request);expect(created).toMatchObject({created:true,task:{revision:1,instanceKey:'fault:2026-08-09',validOn:'2026-08-09',rollover:'forbidden'}});expect(again).toMatchObject({created:false,task:{id:created.task.id}});expect((await retry.list()).filter(task=>task.instanceKey===request.instanceKey)).toHaveLength(1);
   });
 });

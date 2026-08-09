@@ -1,5 +1,11 @@
 import type {ProjectViewSettings,TaskExpansionDepth} from './project.js'
+export type TaskExpansionChoice='collapsed'|'depth'|'remember'
 export const taskExpansionDepthOptions:[TaskExpansionDepth,string][]=[[1,'第一层'],[2,'第二层'],[3,'第三层'],[4,'第四层'],[5,'第五层'],['all','全部']]
 export function normalizeTaskExpansionDepth(value:unknown):TaskExpansionDepth{return value==='all'?'all':Math.max(1,Math.min(5,Math.floor(Number(value)||1))) as TaskExpansionDepth}
 export function initialExpandedTaskIds(options:{remember:boolean;savedIds:string[];validParentIds:string[];defaultIds:string[]}){const valid=new Set(options.validParentIds),saved=options.savedIds.filter(id=>valid.has(id));return options.remember&&saved.length?saved:options.defaultIds.filter(id=>valid.has(id))}
 export function updateExpansionSettings(current:ProjectViewSettings,patch:Partial<ProjectViewSettings>):ProjectViewSettings{return{...current,...patch,defaultTaskExpansion:{...current.defaultTaskExpansion,...patch.defaultTaskExpansion,depth:normalizeTaskExpansionDepth(patch.defaultTaskExpansion?.depth??current.defaultTaskExpansion.depth)}}}
+export function taskExpansionChoice(settings:ProjectViewSettings):TaskExpansionChoice{return settings.rememberTaskExpansion?'remember':settings.defaultTaskExpansion.mode}
+export function selectTaskExpansionChoice(current:ProjectViewSettings,choice:TaskExpansionChoice):ProjectViewSettings{
+  if(choice==='remember')return updateExpansionSettings(current,{rememberTaskExpansion:true})
+  return updateExpansionSettings(current,{rememberTaskExpansion:false,defaultTaskExpansion:{...current.defaultTaskExpansion,mode:choice}})
+}

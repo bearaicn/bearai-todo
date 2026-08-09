@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest'
-import {initialExpandedTaskIds,normalizeTaskExpansionDepth,taskExpansionDepthOptions,updateExpansionSettings} from '../src/domain/taskExpansion'
+import {initialExpandedTaskIds,normalizeTaskExpansionDepth,selectTaskExpansionChoice,taskExpansionChoice,taskExpansionDepthOptions,updateExpansionSettings} from '../src/domain/taskExpansion'
 import type {ProjectViewSettings} from '../src/domain/project'
 const base:ProjectViewSettings={sortMode:'manual',theme:'mist',defaultTaskExpansion:{mode:'collapsed',depth:2},rememberTaskExpansion:false,showSubprojects:false,expandedTaskIds:['parent-a']}
 describe('independent task defaults, memory and project expansion',()=>{
@@ -10,5 +10,16 @@ describe('independent task defaults, memory and project expansion',()=>{
     ['collapsed',false,[],[]],['collapsed',true,['parent-a'],['parent-a']],
     ['depth',false,['parent-a'],['parent-a']],['depth',true,['parent-a'],['parent-a']],
   ])('supports %s with remember=%s independently',(_mode,remember,saved,expected)=>expect(initialExpandedTaskIds({remember,savedIds:saved,validParentIds:['parent-a'],defaultIds:_mode==='depth'?['parent-a']:[]})).toEqual(expected))
-  it('keeps all three dimensions independent in both directions',()=>{expect(updateExpansionSettings(base,{showSubprojects:true})).toMatchObject({showSubprojects:true,rememberTaskExpansion:false,defaultTaskExpansion:{mode:'collapsed',depth:2}});expect(updateExpansionSettings(base,{rememberTaskExpansion:true})).toMatchObject({showSubprojects:false,rememberTaskExpansion:true,defaultTaskExpansion:{mode:'collapsed',depth:2}});expect(updateExpansionSettings(base,{defaultTaskExpansion:{mode:'depth',depth:5}})).toMatchObject({showSubprojects:false,rememberTaskExpansion:false,defaultTaskExpansion:{mode:'depth',depth:5}})})
+  it('maps collapsed, depth and remember to one selected menu choice',()=>{
+    const depth=selectTaskExpansionChoice(base,'depth')
+    expect(depth).toMatchObject({rememberTaskExpansion:false,defaultTaskExpansion:{mode:'depth',depth:2}})
+    expect(taskExpansionChoice(depth)).toBe('depth')
+    const remember=selectTaskExpansionChoice(depth,'remember')
+    expect(remember).toMatchObject({rememberTaskExpansion:true,defaultTaskExpansion:{mode:'depth',depth:2}})
+    expect(taskExpansionChoice(remember)).toBe('remember')
+    const collapsed=selectTaskExpansionChoice(remember,'collapsed')
+    expect(collapsed).toMatchObject({rememberTaskExpansion:false,defaultTaskExpansion:{mode:'collapsed',depth:2}})
+    expect(taskExpansionChoice(collapsed)).toBe('collapsed')
+  })
+  it('keeps project-directory visibility independent from the exclusive task choice',()=>{const current=selectTaskExpansionChoice(base,'remember'),next=updateExpansionSettings(current,{showSubprojects:true});expect(taskExpansionChoice(next)).toBe('remember');expect(next.showSubprojects).toBe(true)})
 })

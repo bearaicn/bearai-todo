@@ -1,17 +1,26 @@
 {
-  "task": "提交累计功能批次并交付 Windows 安装包、桌面快捷方式与原创图标",
-  "status": "in-progress-after-windows-installer-batch",
-  "filesModified": ["src/domain/project.ts", "src/domain/task.ts", "src/domain/taskQueries.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/infrastructure/workspaceRepository.ts", "src/App.vue", "src/style.css", "src/env.d.ts", "electron/main.ts", "electron/preload.cjs", "tests/taskRepository.test.ts", "tests/workspaceRepository.test.ts", "README.md", "docs/DATA_FORMAT.md", "docs/IMPLEMENTATION.md"],
+  "task": "项目树跨父级拖拽、归档弹窗与富文本编辑器修复",
+  "status": "in-progress-after-project-drag-dialog-editor-batch",
+  "filesModified": ["cli/taskAutomation.ts", "cli/tsconfig.json", "scripts/qa-task-automation.mjs", "src/domain/project.ts", "src/domain/task.ts", "src/domain/taskQueries.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/infrastructure/workspaceRepository.ts", "src/infrastructure/workspaceWriteLock.ts", "src/App.vue", "src/style.css", "src/env.d.ts", "electron/main.ts", "electron/preload.cjs", "tests/taskAutomationCli.test.ts", "tests/taskRepository.test.ts", "tests/workspaceRepository.test.ts", "README.md", "docs/DATA_FORMAT.md", "docs/IMPLEMENTATION.md", "package.json"],
   "validation": {
-    "unitTests": "57/57 pass; includes new default expansion depth all, child partition, completed sections, workspace, drag and move domain tests",
+    "unitTests": "81/81 pass across 7 files; includes project placement and invalid-drop behavior, repository subtree persistence, archive revision conflict, rich editor repository readback and prior headless automation coverage",
     "typecheck": "pass",
-    "build": "pass",
-    "electronUiSmoke": "isolated UI verifies 116px custom depth picker with six options/default all; custom theme two-color draft save/apply/copy without clone error; global coast -> project forest -> reset returns coast; all existing gates pass",
+    "build": "pass including renderer, Electron and headless CLI; existing Vite large chunk warning only",
+    "diffCheck": "pass; development-log JSON.parse pass",
+    "automationE2E": "isolated temp workspace: capability -> create -> idempotent retry -> find -> void-expired -> TaskRepository readback; one voided revision=2 task, zero lock/tmp residue, temp workspace removed",
+    "headlessAutomation": "bearai.todo/automation@1 CLI uses explicit absolute workspace path, JSON-only stdout, shared TaskRepository and cross-process workspace write lock",
+    "electronUiSmoke": "isolated production Electron smoke passes at 2048x921, 1440x900 and 1280x800; includes cross-parent project drag, archive dialog focus paths, 12-button fixed toolbar, all five floating commands, real system clipboard text/HTML/image, visible upload, responsive header and project-dialog focus",
+    "projectDrag": "before/after preserves same-parent sorting; inside moves a child subtree across parents under workspace lock; restart readback preserves nested projects and two levels of task ownership",
+    "archiveDialog": "themed alertdialog verifies warning, cancel, confirm, close button, Escape, backdrop, initial focus, focus trap and trigger focus restore",
+    "richEditor": "Vue shallowRef prevents Crepe private-field proxy failures; every fixed and floating command is exercised through real selection and mouse paths; system clipboard text/HTML/image and visible image upload create managed relative Markdown references; cold Electron restart reads two inline files and three rendered editor images",
+    "responsiveHeader": "task-list container query switches the 762px advanced-detail list to two rows while 1613px returns to one row; 2048x921, 1440x900 and 1280x800 report no header/body horizontal overflow and the more button remains at least 40px wide",
+    "projectDialogFocus": "all project dialogs use Vue ref plus nextTick; Electron confirms activeElement is the name input, Escape closes and restores the trigger, and Enter creates the project",
+    "voidedTaskUi": "isolated Electron clicks detail void action, records reason, verifies independent group defaults collapsed and completed count remains separate, expands group, restores task, and reads statusHistory voided->active from Markdown",
+    "windowsInstaller": "0.1.1 NSIS installer built successfully; silent install exit=0 replaced desktop target version 0.1.0.0 with 0.1.1.0, refreshed shortcut/icon, and a real desktop-shortcut launch produced a responsive 熊智ToDo window without deleting workspace data",
     "transactionBoundary": "project folder rename rolls back on config failure; task subtree uses transaction staging and source backups; workspace-level attachment paths remain stable",
-    "manualBoundary": "native sendInput enters Chromium blocking drag loop and is not used as CI evidence; final human mouse drag QA remains outstanding",
-    "windowsInstaller": "electron-builder NSIS x64 package built; current-user install exit 0; desktop shortcut target and version verified; installed application launched and rendered the real production UI",
-    "applicationIcon": "original bear-and-check icon visually inspected; transparent PNG and multi-size Windows ICO generated"
+    "manualBoundary": "native OS drag enters Chromium's blocking drag loop and is not used as unattended CI evidence; pointer-driven DOM drag/drop and all other listed editor/dialog/layout interactions are automated, while final human physical-mouse drag remains outstanding",
+    "applicationIcon": "replacement mist-blue bear and muted-amber check icon visually inspected at full size and 32px; transparent PNG and multi-size Windows ICO generated"
   },
-  "timestamp": "2026-08-09T08:48:00+08:00",
-  "nextSteps": ["继续补足主题草稿离开设置时的未保存确认", "完成人工 Windows 鼠标拖拽、滚动和视觉验收", "补键盘任务移动菜单与自动滚动/hover展开", "实现独立评论 Markdown 仓储和 Git 同步边界"]
+  "timestamp": "2026-08-10T07:34:00+08:00",
+  "nextSteps": ["由每日简报入口独立验收 CLI 后再修改或启用 automation.toml", "由用户对项目跨父拖拽完成一次物理鼠标主观手感验收", "继续补足主题草稿离开设置时的未保存确认", "补键盘任务移动菜单与自动滚动/hover展开", "实现独立评论 Markdown 仓储和 Git 同步边界"]
 }

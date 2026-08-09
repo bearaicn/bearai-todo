@@ -312,22 +312,11 @@
     grid-template-columns: 22px 76px 1fr;
   }
 }
-.shell:has(.detail.advanced) .list-header {
-  display: block;
-}
 .shell:has(.detail.advanced) .heading-block h1,
 .shell:has(.detail.advanced) .breadcrumbs {
   white-space: nowrap;
 }
-.shell:has(.detail.advanced) .header-actions {
-  margin-top: 10px;
-}
-.shell:has(.detail.advanced) .status-stats {
-  display: none;
-}
-.shell:has(.detail.advanced) .list-search {
-  width: min(180px, calc(100% - 54px));
-}
 .error{display:flex;align-items:center;gap:12px}.error span{flex:1}.error button{width:30px;height:30px;display:grid;place-items:center;border:0;border-radius:7px;background:transparent}.error button:hover{background:rgba(163,39,39,.1)}.save-indicator{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin:-3px 3px 8px;color:var(--muted);font-size:11px}.save-indicator.saving,.save-indicator.dirty{color:#8a6b22}.save-indicator.failed{color:#a32727}.save-indicator button{border:0;background:transparent;text-decoration:underline}.project-expand-label{margin-top:7px;padding-top:12px;border-top:1px solid rgba(70,90,83,.12)}
 .milkdown-editor-shell{min-height:460px;background:#fff}.markdown-editor-frame{min-height:458px}.rich-toolbar{position:sticky;top:0;z-index:3;min-height:44px;display:flex;align-items:center;flex-wrap:wrap;gap:3px;padding:5px 7px;border-bottom:1px solid rgba(92,118,108,.18);background:#f8faf9}.rich-toolbar button{min-width:31px;height:31px;padding:0 8px;border:0;border-radius:7px;background:transparent;font-size:12px}.rich-toolbar button:hover{background:var(--accent-soft);color:var(--accent)}.rich-toolbar span{width:1px;height:20px;margin:0 3px;background:rgba(92,118,108,.16)}.milkdown-host{min-height:414px}.milkdown-host .milkdown{min-height:414px;padding:14px 16px}.milkdown-host .ProseMirror{min-height:370px;padding:8px;outline:0}.milkdown-host .ProseMirror:empty:before{content:'在这里输入 Markdown 富文本…';color:#98a39f;pointer-events:none}.milkdown-host img{max-width:100%;height:auto;border-radius:10px}.milkdown-host table{width:100%;border-collapse:collapse}.milkdown-host td,.milkdown-host th{border:1px solid rgba(92,118,108,.18);padding:7px}
 .expansion-depth-option{display:grid;grid-template-columns:1fr 112px;align-items:center;padding:0 7px}.expansion-depth-option>button{padding-left:4px!important}.expansion-depth-option select{height:32px;min-width:0;border:1px solid rgba(70,90,83,.18);border-radius:7px;background:white;padding:0 7px}.expansion-depth-option select:disabled{opacity:.48;cursor:not-allowed}
+.editor-image-input{display:none}

@@ -10,6 +10,7 @@ import {
   type ProjectViewSettings,
   type WorkspaceConfig,
 } from "../domain/project.js";
+import {withWorkspaceWriteLock} from './workspaceWriteLock.js'
 
 const WORKSPACE_FILE = ".bearai-workspace.json",
   PROJECT_FILE = ".bearai-project.json";
@@ -82,6 +83,7 @@ export class WorkspaceRepository {
 }
 export class ProjectRepository {
   constructor(readonly root: string) {}
+  private withWrite<T>(work:()=>Promise<T>){return withWorkspaceWriteLock(this.root,work)}
   async initialize() {
     await new WorkspaceRepository(this.root).initialize();
     let projects = await this.list();
@@ -210,10 +212,14 @@ export class ProjectRepository {
     await atomicJson(join(target, PROJECT_FILE), this.persisted(next));
     return next;
   }
-  async archive(projectId: string) {
+  async archive(projectId: string,expectedRevision?:number) {
+    return this.withWrite(()=>this.archiveUnlocked(projectId,expectedRevision))
+  }
+  private async archiveUnlocked(projectId:string,expectedRevision?:number) {
     const project = await this.get(projectId),
       source = join(this.root, project.relativePath),
       target = join(this.root, ".archive", "projects", project.projectId);
+    if(expectedRevision!==undefined&&project.revision!==expectedRevision)throw new Error(`项目 revision 冲突（期望 ${expectedRevision}，实际 ${project.revision}）`)
     await mkdir(dirname(target), { recursive: true });
     await rename(source, target);
     const next = {
@@ -285,6 +291,9 @@ export class ProjectRepository {
     return next;
   }
   async reorder(dto: ProjectReorderDto) {
+    return this.withWrite(()=>this.reorderUnlocked(dto))
+  }
+  private async reorderUnlocked(dto:ProjectReorderDto) {
     const projects = await this.list(),
       project = projects.find((item) => item.projectId === dto.projectId);
     if (!project) throw new Error("项目不存在");
@@ -344,6 +353,9 @@ export class ProjectRepository {
     });
   }
   async moveChecked(dto: ProjectMoveDto) {
+    return this.withWrite(()=>this.moveCheckedUnlocked(dto))
+  }
+  private async moveCheckedUnlocked(dto:ProjectMoveDto) {
     const project = await this.get(dto.projectId),
       projects = await this.list();
     if (project.parentId === null)

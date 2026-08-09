@@ -1,10 +1,12 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   net,
   Notification,
+  nativeImage,
   protocol,
   shell,
 } from "electron";
@@ -31,7 +33,10 @@ import {
   SettingsRepository,
 } from "../src/infrastructure/settingsRepository.js";
 import { WorkspaceRegistryRepository } from "../src/infrastructure/workspaceRegistryRepository.js";
-if (process.argv.includes("--smoke")) {
+if (
+  process.argv.includes("--smoke") ||
+  process.argv.includes("--smoke-readback")
+) {
   app.disableHardwareAcceleration();
   const isolated =
     process.env.BEARAI_SMOKE_USER_DATA ??
@@ -107,7 +112,7 @@ function scheduleReminder(task: {
   const previous = reminderTimers.get(task.id);
   if (previous) clearTimeout(previous);
   reminderTimers.delete(task.id);
-  if (!task.reminder || task.status === "completed") return;
+  if (!task.reminder || task.status !== "active") return;
   const delay = new Date(task.reminder).getTime() - Date.now();
   if (delay <= 0 || delay > 2_147_000_000) return;
   reminderTimers.set(
@@ -120,6 +125,7 @@ function scheduleReminder(task: {
   );
 }
 function createWindow() {
+  const smokeRendererMessages: string[] = [];
   const win = new BrowserWindow({
     width: Number(process.env.BEARAI_SMOKE_WIDTH) || 1280,
     height: Number(process.env.BEARAI_SMOKE_HEIGHT) || 800,
@@ -136,8 +142,33 @@ function createWindow() {
       sandbox: true,
     },
   });
+  if (process.argv.includes("--smoke"))
+    win.webContents.on("console-message", (_event, level, message) => {
+      if (level >= 2) smokeRendererMessages.push(message);
+    });
   if (process.argv.includes("--dev")) void win.loadURL("http://localhost:5173");
   else void win.loadFile(join(import.meta.dirname, "../../dist/index.html"));
+  if (process.argv.includes("--smoke-readback"))
+    win.webContents.once("did-finish-load", async () => {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const readback = await win.webContents.executeJavaScript(
+          `(async()=>{const health=await window.bearTodo.health(),tasks=await window.bearTodo.listTasks(),task=tasks.find(x=>x.title==='连续输入最终值'),inline=task?.attachments.filter(x=>x.role==='inline')??[],title=[...document.querySelectorAll('.cards strong')].find(x=>x.textContent==='连续输入最终值');title?.closest('article')?.click();await new Promise(resolve=>setTimeout(resolve,900));return{health,titles:tasks.map(x=>x.title),taskFound:!!task,note:task?.note,inlineCount:inline.length,paths:inline.map(x=>x.relativePath),files:await Promise.all(inline.map(async x=>(await window.bearTodo.previewAttachment(x)).supported)),uiImageCount:document.querySelectorAll('.ProseMirror img').length}})()`,
+        );
+        console.log(`BEARAI_READBACK ${JSON.stringify(readback)}`);
+        app.exit(
+          readback.taskFound &&
+            readback.inlineCount >= 2 &&
+            readback.files.every(Boolean) &&
+            readback.uiImageCount >= 2
+            ? 0
+            : 1,
+        );
+      } catch (error) {
+        console.error("BEARAI_READBACK_FAILED", error);
+        app.exit(1);
+      }
+    });
   if (process.argv.includes("--smoke"))
     win.webContents.once("did-finish-load", async () => {
       try {
@@ -146,9 +177,16 @@ function createWindow() {
         );
         await new Promise((resolve) => setTimeout(resolve, 500));
         const workspaceQaResult = await win.webContents.executeJavaScript(
-          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),initial=await window.bearTodo.listWorkspaces(),first=initial.activeWorkspaceId,second=initial.workspaces.find(x=>x.workspaceId!==first);document.querySelector('.workspace-block')?.click();await wait(80);const menuVisible=!!document.querySelector('.workspace-menu'),labels=[...document.querySelectorAll('.workspace-menu button')].map(x=>x.textContent.trim()),secondButton=[...document.querySelectorAll('.workspace-menu button')].find(x=>x.textContent.includes(second?.name));secondButton?.click();await wait(500);const switched=(await window.bearTodo.listWorkspaces()).activeWorkspaceId===second?.workspaceId,isolatedProjects=(await window.bearTodo.listProjects()).some(x=>x.name==='第二工作区项目'),activeLabel=document.querySelector('.workspace-block span')?.textContent;document.querySelector('.workspace-block')?.click();await wait(60);[...document.querySelectorAll('.workspace-menu button')].find(x=>x.textContent.includes(initial.workspaces.find(w=>w.workspaceId===first)?.name))?.click();await wait(500);const restored=(await window.bearTodo.listWorkspaces()).activeWorkspaceId===first,originalProjects=(await window.bearTodo.listProjects()).some(x=>x.name==='拖拽目标项目');return{registered:initial.workspaces.length===2,menuVisible,labels,switched,isolatedProjects,activeLabel,restored,originalProjects}})()`,
+          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),initial=await window.bearTodo.listWorkspaces(),first=initial.activeWorkspaceId,second=initial.workspaces.find(x=>x.workspaceId!==first);document.querySelector('.workspace-block')?.click();await wait(80);const menuVisible=!!document.querySelector('.workspace-menu'),labels=[...document.querySelectorAll('.workspace-menu button')].map(x=>x.textContent.trim()),secondButton=[...document.querySelectorAll('.workspace-menu button')].find(x=>x.textContent.includes(second?.name));secondButton?.click();await wait(500);const switched=(await window.bearTodo.listWorkspaces()).activeWorkspaceId===second?.workspaceId,isolatedProjects=(await window.bearTodo.listProjects()).some(x=>x.name==='第二工作区项目'),activeLabel=document.querySelector('.workspace-block span')?.textContent;document.querySelector('.workspace-block')?.click();await wait(60);[...document.querySelectorAll('.workspace-menu button')].find(x=>x.textContent.includes(initial.workspaces.find(w=>w.workspaceId===first)?.name))?.click();await wait(500);const restored=(await window.bearTodo.listWorkspaces()).activeWorkspaceId===first,originalProjects=(await window.bearTodo.listProjects()).some(x=>x.name==='拖拽目标项目');await window.bearTodo.createProject('刷新按钮外部项目',null);const absentBeforeRefresh=![...document.querySelectorAll('.list-row b')].some(x=>x.textContent==='刷新按钮外部项目'),refreshButton=document.querySelector('.workspace-refresh');refreshButton?.click();await wait(650);const appearedAfterRefresh=[...document.querySelectorAll('.list-row b')].some(x=>x.textContent==='刷新按钮外部项目');return{registered:initial.workspaces.length===2,menuVisible,labels,switched,isolatedProjects,activeLabel,restored,originalProjects,refreshButtonFound:!!refreshButton,refreshTitle:refreshButton?.getAttribute('title'),absentBeforeRefresh,appearedAfterRefresh}})()`,
         );
         Object.assign(result, { workspaceQaResult });
+        const projectTreeCountResult = await win.webContents.executeJavaScript(
+          `(()=>{const rows=[...document.querySelectorAll('.list-row')],read=name=>{const row=rows.find(item=>item.querySelector('b')?.textContent===name);return row?.querySelector('.project-counts')?.textContent?.trim()};return{parent:read('计数父项目'),child:read('计数子项目')}})()`,
+        );
+        const recurrenceResult = await win.webContents.executeJavaScript(
+          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),row=[...document.querySelectorAll('.cards article')].find(item=>item.querySelector('strong')?.textContent==='每日重复冒烟任务');row?.querySelector('.circle')?.click();await wait(900);const occurrences=(await window.bearTodo.listTasks()).filter(item=>item.title==='每日重复冒烟任务').sort((a,b)=>a.createdAt.localeCompare(b.createdAt));return{clicked:!!row,count:occurrences.length,oldStatus:occurrences[0]?.status,newStatus:occurrences[1]?.status,oldId:occurrences[0]?.id,newId:occurrences[1]?.id,oldDue:occurrences[0]?.due,newDue:occurrences[1]?.due}})()`,
+        );
+        Object.assign(result, { projectTreeCountResult, recurrenceResult });
         if (process.env.BEARAI_SMOKE_WORKSPACES_SCREENSHOT) {
           await win.webContents.executeJavaScript(
             `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms));document.querySelector('.workspace-block')?.click();await wait(80);[...document.querySelectorAll('.workspace-menu button')].find(x=>x.textContent.includes('管理工作区'))?.click();await wait(180)})()`,
@@ -175,15 +213,19 @@ function createWindow() {
           `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),parent=[...document.querySelectorAll('.cards article')].find(row=>row.querySelector('strong')?.textContent==='子任务分组父任务');parent?.querySelector('.task-expand')?.click();await wait(120);const group=document.querySelector('.child-completed-section'),collapsed=group?.querySelector('.completed-toggle')?.getAttribute('aria-expanded')==='false',label=group?.querySelector('.completed-toggle')?.textContent.replace(/\\s+/g,' ').trim();group?.querySelector('.completed-toggle')?.click();await wait(80);const child=group?.querySelector('.completed-task'),childTitle=child?.querySelector('strong')?.textContent;child?.querySelector('.circle.done')?.click();await wait(750);const persisted=(await window.bearTodo.listTasks()).find(x=>x.title===childTitle)?.status,remaining=document.querySelectorAll('.child-completed-section .completed-task').length,activeChild=[...document.querySelectorAll('.cards article strong')].some(x=>x.textContent===childTitle&&!x.classList.contains('strike'));return{collapsed,label,childTitle,persisted,remaining,activeChild}})()`,
         );
         Object.assign(result, { completedChildGroupResult });
+        const voidedUiResult=await win.webContents.executeJavaScript(`(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),projects=await window.bearTodo.listProjects(),project=projects.find(x=>x.name==='默认项目'),created=await window.bearTodo.createTask('作废界面冒烟任务',project.projectId);document.querySelector('.workspace-refresh')?.click();await wait(500);const row=[...document.querySelectorAll('.cards article')].find(x=>x.querySelector('strong')?.textContent==='作废界面冒烟任务');row?.click();await wait(80);const oldPrompt=window.prompt;window.prompt=()=> '仅当天有效';document.querySelector('.void-task-button')?.click();await wait(650);window.prompt=oldPrompt;const persisted=(await window.bearTodo.listTasks()).find(x=>x.id===created.id),group=document.querySelector('.voided-section:not(.child-completed-section)'),collapsed=group?.querySelector('.voided-toggle')?.getAttribute('aria-expanded')==='false',completedLabel=document.querySelector('.completed-section:not(.voided-section) .completed-toggle')?.textContent.replace(/\s+/g,'').trim();group?.querySelector('.voided-toggle')?.click();await wait(80);const voidedRow=[...group.querySelectorAll('.voided-task')].find(x=>x.querySelector('strong')?.textContent==='作废界面冒烟任务');voidedRow?.querySelector('.circle.voided')?.click();await wait(650);const restored=(await window.bearTodo.listTasks()).find(x=>x.id===created.id);return{buttonFound:!!document.querySelector('.void-task-button')||!!voidedRow,persistedStatus:persisted?.status,reason:persisted?.voidReason,collapsed,completedLabel,restoredStatus:restored?.status,history:restored?.statusHistory?.map(x=>x.status)}})()`);
+        Object.assign(result,{voidedUiResult});
         if (process.env.BEARAI_SMOKE_COMPLETED_CHILD_SCREENSHOT)
           await writeFile(
             process.env.BEARAI_SMOKE_COMPLETED_CHILD_SCREENSHOT,
             (await win.webContents.capturePage()).toPNG(),
           );
         const dragQaResult = await win.webContents.executeJavaScript(
-          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),drag=async(source,target,clientY)=>{const dataTransfer=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer}));target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer,clientY}));const indicatorVisible=target.matches('.drop-allowed,.drop-before,.drop-after,.drop-child');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer,clientY}));source.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer}));await wait(350);return indicatorVisible};const projectRows=[...document.querySelectorAll('.list-row')],defaultRow=projectRows.find(row=>row.querySelector('b')?.textContent==='默认项目'),targetRow=projectRows.find(row=>row.querySelector('b')?.textContent==='拖拽目标项目'),projectIndicator=await drag(targetRow,defaultRow,defaultRow.getBoundingClientRect().top+10);defaultRow.querySelector('.list-main').click();await wait(180);const taskRows=[...document.querySelectorAll('.cards article')],firstRow=taskRows.find(row=>row.querySelector('strong')?.textContent==='拖拽任务一'),secondRow=taskRows.find(row=>row.querySelector('strong')?.textContent==='拖拽任务二'),taskIndicator=await drag(secondRow,firstRow,firstRow.getBoundingClientRect().top+firstRow.getBoundingClientRect().height/2),projects=await window.bearTodo.listProjects(),tasks=await window.bearTodo.listTasks(),first=tasks.find(x=>x.title==='拖拽任务一'),second=tasks.find(x=>x.title==='拖拽任务二');return{projectIndicator,taskIndicator,projectOrder:projects.filter(x=>x.parentId===null).sort((a,b)=>a.order-b.order).map(x=>x.name),taskNested:second?.parentId===first?.id,dropIndicatorsCleared:!document.querySelector('.drop-before,.drop-after,.drop-child,.drop-allowed,.drop-forbidden')}})()`,
+          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),drag=async(source,target,clientY)=>{const dataTransfer=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer}));target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer,clientY}));await wait(30);const classes=target.className,allowed=/project-drop-(before|inside|after)|drop-(before|after|child)/.test(classes),forbidden=target.classList.contains('drop-forbidden');target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer,clientY}));source.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer}));await wait(450);return{allowed,forbidden,classes}};let projectRows=[...document.querySelectorAll('.list-row')],defaultRow=projectRows.find(row=>row.querySelector('b')?.textContent==='默认项目'),targetRow=projectRows.find(row=>row.querySelector('b')?.textContent==='拖拽目标项目'),projectIndicator=await drag(targetRow,defaultRow,defaultRow.getBoundingClientRect().top+4);projectRows=[...document.querySelectorAll('.list-row')];const crossSource=projectRows.find(row=>row.querySelector('b')?.textContent==='跨父子项目'),crossTarget=projectRows.find(row=>row.querySelector('b')?.textContent==='跨父目标项目'),crossMoveIndicator=await drag(crossSource,crossTarget,crossTarget.getBoundingClientRect().top+crossTarget.getBoundingClientRect().height/2);projectRows=[...document.querySelectorAll('.list-row')];const movedSource=projectRows.find(row=>row.querySelector('b')?.textContent==='跨父子项目'),grandchild=projectRows.find(row=>row.querySelector('b')?.textContent==='跨父孙项目'),cycleIndicator=await drag(movedSource,grandchild,grandchild.getBoundingClientRect().top+grandchild.getBoundingClientRect().height/2),selfIndicator=await drag(movedSource,movedSource,movedSource.getBoundingClientRect().top+movedSource.getBoundingClientRect().height/2);defaultRow=[...document.querySelectorAll('.list-row')].find(row=>row.querySelector('b')?.textContent==='默认项目');defaultRow.querySelector('.list-main').click();await wait(180);const taskRows=[...document.querySelectorAll('.cards article')],firstRow=taskRows.find(row=>row.querySelector('strong')?.textContent==='拖拽任务一'),secondRow=taskRows.find(row=>row.querySelector('strong')?.textContent==='拖拽任务二'),taskIndicator=await drag(secondRow,firstRow,firstRow.getBoundingClientRect().top+firstRow.getBoundingClientRect().height/2),projects=await window.bearTodo.listProjects(),tasks=await window.bearTodo.listTasks(),first=tasks.find(x=>x.title==='拖拽任务一'),second=tasks.find(x=>x.title==='拖拽任务二'),movedProject=projects.find(x=>x.name==='跨父子项目'),targetProject=projects.find(x=>x.name==='跨父目标项目'),subtreeTasks=tasks.filter(x=>x.title==='跨父任务'||x.title==='跨父孙任务');return{projectIndicator,taskIndicator,crossMoveIndicator,cycleIndicator,selfIndicator,projectOrder:projects.filter(x=>x.parentId===null).sort((a,b)=>a.order-b.order).map(x=>x.name),crossParentPersisted:movedProject?.parentId===targetProject?.projectId,subtreeTasksPreserved:subtreeTasks.length===2,taskNested:second?.parentId===first?.id,dropIndicatorsCleared:!document.querySelector('.project-drop-before,.project-drop-inside,.project-drop-after,.drop-before,.drop-after,.drop-child,.drop-forbidden')}})()`,
         );
         Object.assign(result, { dragQaResult });
+        const archiveDialogResult=await win.webContents.executeJavaScript(`(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),row=()=>[...document.querySelectorAll('.list-row')].find(item=>item.querySelector('b')?.textContent==='归档弹窗项目'),open=async()=>{const target=row();target?.querySelector('.list-main')?.focus();target?.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:240,clientY:320}));await wait(60);[...document.querySelectorAll('.context-menu button')].find(x=>x.textContent.includes('归档'))?.click();await wait(80);return document.querySelector('.confirm-dialog')};let dialog=await open(),message=dialog?.querySelector('p')?.textContent,warning=message?.includes('1 个未完成任务'),initialFocus=document.activeElement?.textContent?.trim()==='取消';document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait(80);const escClosed=!document.querySelector('.confirm-dialog'),focusRestored=document.activeElement===row()?.querySelector('.list-main');dialog=await open();dialog?.querySelector('.confirm-close')?.click();await wait(80);const closeClosed=!document.querySelector('.confirm-dialog');dialog=await open();dialog?.parentElement?.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));await wait(80);const backdropClosed=!document.querySelector('.confirm-dialog');dialog=await open();dialog?.querySelector('.primary')?.click();await wait(500);const confirmed=!(await window.bearTodo.listProjects()).some(x=>x.name==='归档弹窗项目');return{warning,initialFocus,escClosed,focusRestored,closeClosed,backdropClosed,confirmed}})()`);
+        Object.assign(result,{archiveDialogResult});
         const taskProjectMoveQaResult = await win.webContents.executeJavaScript(
           `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),drag=async()=>{const source=[...document.querySelectorAll('.cards article')].find(row=>row.querySelector('strong')?.textContent==='拖拽任务一'),target=[...document.querySelectorAll('.list-row')].find(row=>row.querySelector('b')?.textContent==='拖拽目标项目'),dataTransfer=new DataTransfer();source.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer}));target.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,dataTransfer}));target.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer}));source.dispatchEvent(new DragEvent('dragend',{bubbles:true,dataTransfer}));await wait(100)};await drag();const confirmationVisible=[...document.querySelectorAll('.modal h2')].some(x=>x.textContent.includes('确认移动任务'));[...document.querySelectorAll('.modal-actions button')].find(x=>x.textContent==='取消')?.click();await wait(100);const canceled=(await window.bearTodo.listTasks()).find(x=>x.title==='拖拽任务一')?.projectId===(await window.bearTodo.listProjects()).find(x=>x.name==='默认项目')?.projectId;await drag();[...document.querySelectorAll('.modal-actions button')].find(x=>x.textContent.includes('确认移动'))?.click();await wait(500);const projects=await window.bearTodo.listProjects(),tasks=await window.bearTodo.listTasks(),targetId=projects.find(x=>x.name==='拖拽目标项目')?.projectId,moved=tasks.filter(x=>x.title==='拖拽任务一'||x.title==='拖拽任务二').every(x=>x.projectId===targetId);return{confirmationVisible,canceled,moved}})()`,
         );
@@ -214,6 +256,257 @@ function createWindow() {
           `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),title=[...document.querySelectorAll('.cards strong')].find(x=>x.textContent==='连续输入最终值');title?.closest('article')?.click();await wait(120);[...document.querySelectorAll('.task-kind button')].find(x=>x.textContent.includes('高级任务'))?.click();await wait(500);const detail=document.querySelector('.detail.advanced'),toolbar=[...document.querySelectorAll('.rich-toolbar button')].map(x=>x.getAttribute('aria-label')),ratio=detail?.getBoundingClientRect().width/innerWidth,triggers=[...document.querySelectorAll('.schedule-trigger')],reminder=triggers.find(x=>x.textContent.includes('提醒我')),due=triggers.find(x=>x.textContent.includes('截止时间'));reminder?.click();await wait(100);const quickChoices=[...document.querySelectorAll('.schedule-quick-menu button')].map(x=>x.textContent.trim());document.querySelector('.schedule-quick-menu button')?.click();await wait(750);reminder?.click();await wait(80);[...document.querySelectorAll('.schedule-quick-menu button')].find(x=>x.textContent.includes('选择日期和时间'))?.click();await wait(180);const reminderPickerOpened=!!document.querySelector('.date-picker-open-marker');document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait(100);due?.click();await wait(80);[...document.querySelectorAll('.schedule-quick-menu button')].find(x=>x.textContent.includes('选择日期'))?.click();await wait(180);const duePickerOpened=!!document.querySelector('.date-picker-open-marker');const task=(await window.bearTodo.listTasks()).find(x=>x.title==='连续输入最终值');return{toolbar,ratio,quickChoices,datePickerOpened:reminderPickerOpened&&duePickerOpened,reminderPickerOpened,duePickerOpened,reminderPersisted:!!task?.reminder}})()`,
         );
         Object.assign(result, { detailControlsResult });
+        const editorWait = (milliseconds: number) =>
+          new Promise((resolve) => setTimeout(resolve, milliseconds));
+        const editorSelectAll = async () => {
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.ProseMirror')?.focus()`,
+          );
+          win.webContents.sendInputEvent({
+            type: 'keyDown',
+            keyCode: 'A',
+            modifiers: ['control'],
+          });
+          win.webContents.sendInputEvent({
+            type: 'keyUp',
+            keyCode: 'A',
+            modifiers: ['control'],
+          });
+          await editorWait(80);
+        };
+        const editorSelectLine = async () => {
+          await win.webContents.executeJavaScript(
+            `document.querySelector('.ProseMirror')?.focus()`,
+          );
+          win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Home' });
+          win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Home' });
+          win.webContents.sendInputEvent({
+            type: 'keyDown',
+            keyCode: 'End',
+            modifiers: ['shift'],
+          });
+          win.webContents.sendInputEvent({
+            type: 'keyUp',
+            keyCode: 'End',
+            modifiers: ['shift'],
+          });
+          await editorWait(240);
+        };
+        const editorSetText = async (value: string) => {
+          await editorSelectAll();
+          win.webContents.insertText(value);
+          await editorWait(120);
+        };
+        const editorPress = async (label: string) => {
+          const rect = await win.webContents.executeJavaScript(
+            `(()=>{const button=[...document.querySelectorAll('.rich-toolbar button')].find(x=>x.getAttribute('aria-label')===${JSON.stringify(label)});if(!button)return null;const rect=button.getBoundingClientRect();return{x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)}})()`,
+          );
+          if (!rect) return false;
+          win.webContents.sendInputEvent({
+            type: 'mouseDown',
+            x: rect.x,
+            y: rect.y,
+            button: 'left',
+            clickCount: 1,
+          });
+          win.webContents.sendInputEvent({
+            type: 'mouseUp',
+            x: rect.x,
+            y: rect.y,
+            button: 'left',
+            clickCount: 1,
+          });
+          await editorWait(120);
+          return true;
+        };
+        const editorHtml = () =>
+          win.webContents.executeJavaScript(
+            `document.querySelector('.ProseMirror')?.innerHTML??''`,
+          );
+        const editorToolbarResult: Record<string, unknown> = await win.webContents.executeJavaScript(
+          `(()=>{const editor=document.querySelector('.ProseMirror');return{editorFound:!!editor,toolbar:[...document.querySelectorAll('.rich-toolbar button')].map(x=>({label:x.getAttribute('aria-label'),disabled:x.disabled})),floatingButtons:[...document.querySelectorAll('[data-milkdown-root] button,.milkdown button')].filter(x=>!x.closest('.rich-toolbar')&&x.offsetParent).map(x=>x.getAttribute('aria-label')||x.textContent.trim()).filter(Boolean)}})()`,
+        );
+        await editorSetText('浮动工具栏验证');
+        const selectionPoints = await win.webContents.executeJavaScript(
+          `(()=>{const text=document.querySelector('.ProseMirror p')?.firstChild;if(!text)return null;const start=document.createRange(),end=document.createRange();start.setStart(text,0);start.setEnd(text,1);end.setStart(text,text.textContent.length-1);end.setEnd(text,text.textContent.length);const a=start.getBoundingClientRect(),b=end.getBoundingClientRect();return{start:{x:Math.round(a.left+1),y:Math.round(a.top+a.height/2)},end:{x:Math.round(b.right-1),y:Math.round(b.top+b.height/2)}}})()`,
+        );
+        if (selectionPoints) {
+          win.webContents.sendInputEvent({
+            type: 'mouseMove',
+            ...selectionPoints.start,
+          });
+          win.webContents.sendInputEvent({
+            type: 'mouseDown',
+            ...selectionPoints.start,
+            button: 'left',
+            clickCount: 1,
+          });
+          win.webContents.sendInputEvent({
+            type: 'mouseMove',
+            ...selectionPoints.end,
+          });
+          win.webContents.sendInputEvent({
+            type: 'mouseUp',
+            ...selectionPoints.end,
+            button: 'left',
+            clickCount: 1,
+          });
+          await editorWait(240);
+        }
+        await editorSelectLine();
+        editorToolbarResult.floatingButtons =
+          await win.webContents.executeJavaScript(
+            `[...document.querySelectorAll('.milkdown-toolbar [data-toolbar-item]')].filter(x=>x.offsetParent).map(x=>x.getAttribute('data-toolbar-item'))`,
+          );
+        const floatingBoldRect = await win.webContents.executeJavaScript(
+          `(()=>{const button=document.querySelector('.milkdown-toolbar [data-toolbar-item="bold"]');if(!button||!button.offsetParent)return null;const rect=button.getBoundingClientRect();return{x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)}})()`,
+        );
+        if (floatingBoldRect) {
+          for (let index = 0; index < 2; index++) {
+            win.webContents.sendInputEvent({
+              type: 'mouseDown',
+              ...floatingBoldRect,
+              button: 'left',
+              clickCount: 1,
+            });
+            win.webContents.sendInputEvent({
+              type: 'mouseUp',
+              ...floatingBoldRect,
+              button: 'left',
+              clickCount: 1,
+            });
+            await editorWait(140);
+            editorToolbarResult[
+              index === 0 ? 'floatingBoldApplied' : 'floatingBoldRemoved'
+            ] =
+              index === 0
+                ? (await editorHtml()).includes('<strong>')
+                : !(await editorHtml()).includes('<strong>');
+          }
+        }
+        const floatingCases = [
+          { key: 'italic', tag: '<em>', result: 'FloatingItalic' },
+          { key: 'strikethrough', tag: '<del>', result: 'FloatingStrike' },
+          { key: 'code', tag: '<code>', result: 'FloatingCode' },
+        ];
+        for (const item of floatingCases) {
+          await editorSetText(`浮动${item.key}验证`);
+          await editorSelectLine();
+          const rect = await win.webContents.executeJavaScript(
+            `(()=>{const button=document.querySelector('.milkdown-toolbar [data-toolbar-item=${JSON.stringify(item.key)}]');if(!button||!button.offsetParent)return null;const rect=button.getBoundingClientRect();return{x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)}})()`,
+          );
+          if (!rect) continue;
+          for (let index = 0; index < 2; index++) {
+            win.webContents.sendInputEvent({
+              type: 'mouseDown',
+              ...rect,
+              button: 'left',
+              clickCount: 1,
+            });
+            win.webContents.sendInputEvent({
+              type: 'mouseUp',
+              ...rect,
+              button: 'left',
+              clickCount: 1,
+            });
+            await editorWait(160);
+            const hasTag = (await editorHtml()).includes(item.tag);
+            editorToolbarResult[
+              `${item.result}${index === 0 ? 'Applied' : 'Removed'}`
+            ] = index === 0 ? hasTag : !hasTag;
+          }
+        }
+        await editorSetText('格式测试');
+        await editorSelectAll();
+        await editorPress('粗体');
+        editorToolbarResult.boldApplied = (await editorHtml()).includes('<strong>');
+        await editorSelectAll();
+        await editorPress('粗体');
+        editorToolbarResult.boldRemoved = !(await editorHtml()).includes('<strong>');
+        await editorSelectAll();
+        await editorPress('斜体');
+        editorToolbarResult.italicApplied = (await editorHtml()).includes('<em>');
+        await editorSelectAll();
+        await editorPress('删除线');
+        editorToolbarResult.strikeApplied = /<(del|s)>/.test(await editorHtml());
+        await editorSetText('标题测试');
+        await editorPress('标题（二级）');
+        editorToolbarResult.headingApplied = (await editorHtml()).includes('<h2');
+        await editorPress('标题（二级）');
+        editorToolbarResult.headingRemoved = !(await editorHtml()).includes('<h2');
+        await editorSetText('无序项');
+        await editorPress('无序列表');
+        editorToolbarResult.bulletApplied = (await editorHtml()).includes('<ul');
+        await editorPress('无序列表');
+        editorToolbarResult.bulletRemoved = !(await editorHtml()).includes('<ul');
+        await editorSetText('有序项');
+        await editorPress('有序列表');
+        editorToolbarResult.orderedApplied = (await editorHtml()).includes('<ol');
+        await editorSetText('引用内容');
+        await editorPress('引用');
+        editorToolbarResult.quoteApplied = (await editorHtml()).includes('<blockquote');
+        await editorSetText('行内代码');
+        await editorSelectAll();
+        await editorPress('行内代码');
+        editorToolbarResult.inlineCodeApplied = (await editorHtml()).includes('<code');
+        await editorSetText('代码块');
+        await editorPress('代码块');
+        editorToolbarResult.codeBlockHtml = await editorHtml();
+        editorToolbarResult.codeBlockApplied = String(
+          editorToolbarResult.codeBlockHtml,
+        ).includes('milkdown-code-block');
+        await editorPress('代码块');
+        editorToolbarResult.codeBlockRemoved = !(await editorHtml()).includes(
+          'milkdown-code-block',
+        );
+        await editorSetText('撤销基础');
+        await editorSelectAll();
+        win.webContents.insertText('撤销后内容');
+        await editorWait(120);
+        await editorPress('撤销');
+        editorToolbarResult.undoApplied = !(await editorHtml()).includes('撤销后内容');
+        await editorPress('重做');
+        editorToolbarResult.redoApplied = (await editorHtml()).includes('撤销后内容');
+        await win.webContents.executeJavaScript(
+          `(()=>{const editor=document.querySelector('.ProseMirror');editor.focus();document.execCommand('selectAll');document.execCommand('insertHTML',false,'<p>跨段第一</p><p>跨段第二</p>')})()`,
+        );
+        await editorWait(120);
+        await editorSelectAll();
+        await editorPress('粗体');
+        editorToolbarResult.crossParagraphBold =
+          (await win.webContents.executeJavaScript(
+            `document.querySelectorAll('.ProseMirror strong').length`,
+          )) >= 2;
+        await editorSetText('浮动链接验证');
+        await editorSelectLine();
+        const linkRect=await win.webContents.executeJavaScript(`(()=>{const button=document.querySelector('.milkdown-toolbar [data-toolbar-item="link"]');if(!button||!button.offsetParent)return null;const rect=button.getBoundingClientRect();return{x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)}})()`);
+        if(linkRect){win.webContents.sendInputEvent({type:'mouseDown',...linkRect,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',...linkRect,button:'left',clickCount:1});await editorWait(180);editorToolbarResult.FloatingLinkEditorOpened=await win.webContents.executeJavaScript(`!!document.querySelector('.link-edit input')`);await win.webContents.executeJavaScript(`(()=>{const input=document.querySelector('.link-edit input');if(!input)return;input.value='https://example.com/editor-link';input.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertText',data:input.value}))})()`);win.webContents.sendInputEvent({type:'keyDown',keyCode:'Enter'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Enter'});await editorWait(220);editorToolbarResult.FloatingLinkApplied=(await editorHtml()).includes('href="https://example.com/editor-link"');await editorSelectLine();const editRect=await win.webContents.executeJavaScript(`(()=>{const button=document.querySelector('.milkdown-toolbar [data-toolbar-item="link"]');if(!button||!button.offsetParent)return null;const rect=button.getBoundingClientRect();return{x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)}})()`);if(editRect){win.webContents.sendInputEvent({type:'mouseDown',...editRect,button:'left',clickCount:1});win.webContents.sendInputEvent({type:'mouseUp',...editRect,button:'left',clickCount:1});await editorWait(160);win.webContents.sendInputEvent({type:'keyDown',keyCode:'Escape'});win.webContents.sendInputEvent({type:'keyUp',keyCode:'Escape'});await editorWait(120);editorToolbarResult.FloatingLinkRemoved=!(await editorHtml()).includes('href="https://example.com/editor-link"')}}
+        const pasteClipboard = async () => {
+          await editorSetText('待替换');
+          await editorSelectAll();
+          win.webContents.sendInputEvent({type:'keyDown',keyCode:'V',modifiers:['control']});
+          win.webContents.sendInputEvent({type:'keyUp',keyCode:'V',modifiers:['control']});
+          await editorWait(700);
+        };
+        clipboard.writeText('系统剪贴板纯文本');
+        await pasteClipboard();
+        editorToolbarResult.clipboardText=(await editorHtml()).includes('系统剪贴板纯文本');
+        clipboard.write({text:'网页粗体与链接',html:'<p><strong>网页粗体</strong>与<a href="https://example.com/path">链接</a></p>'});
+        await pasteClipboard();
+        const clipboardHtml=await editorHtml();
+        editorToolbarResult.clipboardHtml=clipboardHtml.includes('<strong>网页粗体</strong>')&&clipboardHtml.includes('href="https://example.com/path"');
+        const qaPng=await readFile(join(app.getAppPath(),'build','icon.png'));
+        clipboard.writeImage(nativeImage.createFromBuffer(qaPng));
+        editorToolbarResult.clipboardImageReady=!clipboard.readImage().isEmpty();
+        await pasteClipboard();
+        await editorWait(900);
+        editorToolbarResult.clipboardImage=await win.webContents.executeJavaScript(`!!document.querySelector('.ProseMirror img[src^="bearai-asset://attachment/"]')`);
+        editorToolbarResult.uploadButtonVisible=await win.webContents.executeJavaScript(`!![...document.querySelectorAll('.rich-toolbar button')].find(x=>x.getAttribute('aria-label')==='插入图片'&&!x.disabled&&x.offsetParent)`);
+        if(editorToolbarResult.uploadButtonVisible)editorToolbarResult.uploadTriggered=await win.webContents.executeJavaScript(`(async()=>{const input=document.querySelector('.editor-image-input'),bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAEAQH/XPbWHwAAAABJRU5ErkJggg=='),x=>x.charCodeAt(0)),file=new File([bytes],'visible-upload.png',{type:'image/png'}),transfer=new DataTransfer();transfer.items.add(file);Object.defineProperty(input,'files',{configurable:true,value:transfer.files});input.dispatchEvent(new Event('change',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,1400));return!!document.querySelector('.ProseMirror img[alt="visible-upload.png"]')})()`);
+        await editorWait(900);
+        Object.assign(editorToolbarResult,await win.webContents.executeJavaScript(`(async()=>{const task=(await window.bearTodo.listTasks()).find(x=>x.title==='连续输入最终值'),inline=task?.attachments.filter(x=>x.role==='inline')??[];return{persistedNote:task?.note,inlineAttachmentCount:inline.length,inlinePaths:inline.map(x=>x.relativePath),inlineFiles:await Promise.all(inline.map(async x=>(await window.bearTodo.previewAttachment(x)).supported))}})()`));
+        Object.assign(result, { editorToolbarResult });
+        result.headerLayoutAdvanced=await win.webContents.executeJavaScript(`(()=>{const list=document.querySelector('.list'),header=document.querySelector('.list-header'),heading=document.querySelector('.heading-block'),actions=document.querySelector('.header-actions'),title=document.querySelector('.heading-block h1,.breadcrumbs'),more=document.querySelector('.more');return{listWidth:list.getBoundingClientRect().width,twoRows:actions.getBoundingClientRect().top>=heading.getBoundingClientRect().bottom-1,titleWidth:title.getBoundingClientRect().width,titleHeight:title.getBoundingClientRect().height,titleOverflow:title.scrollWidth>title.clientWidth,moreVisible:more&&more.getBoundingClientRect().width>=40,headerOverflow:header.scrollWidth>header.clientWidth,bodyOverflow:document.body.scrollWidth>document.body.clientWidth}})()`);
         if (process.env.BEARAI_SMOKE_DETAIL_CONTROLS_SCREENSHOT)
           await writeFile(
             process.env.BEARAI_SMOKE_DETAIL_CONTROLS_SCREENSHOT,
@@ -223,6 +516,9 @@ function createWindow() {
           `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));document.querySelector('.detail-close')?.click()`,
         );
         await new Promise((resolve) => setTimeout(resolve, 120));
+        result.headerLayoutNoDetail=await win.webContents.executeJavaScript(`(()=>{const list=document.querySelector('.list'),header=document.querySelector('.list-header'),heading=document.querySelector('.heading-block'),actions=document.querySelector('.header-actions'),title=document.querySelector('.heading-block h1,.breadcrumbs'),more=document.querySelector('.more');return{listWidth:list.getBoundingClientRect().width,twoRows:actions.getBoundingClientRect().top>=heading.getBoundingClientRect().bottom-1,titleWidth:title.getBoundingClientRect().width,titleHeight:title.getBoundingClientRect().height,titleOverflow:title.scrollWidth>title.clientWidth,moreVisible:more&&more.getBoundingClientRect().width>=40,headerOverflow:header.scrollWidth>header.clientWidth,bodyOverflow:document.body.scrollWidth>document.body.clientWidth}})()`);
+        const newProjectDialogResult=await win.webContents.executeJavaScript(`(async()=>{const wait=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))),button=document.querySelector('.new-row button'),source=document.querySelector('.new-row input');button.click();await wait();let input=document.querySelector('.modal input[aria-label="名称"]'),focused=document.activeElement===input;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'自动聚焦项目');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await wait();const escClosed=!document.querySelector('.modal input[aria-label="名称"]'),focusRestored=document.activeElement===button;button.click();await wait();input=document.querySelector('.modal input[aria-label="名称"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'自动聚焦项目');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));await new Promise(resolve=>setTimeout(resolve,350));return{focused,escClosed,focusRestored,enterCreated:[...document.querySelectorAll('.list-main b')].some(x=>x.textContent==='自动聚焦项目')}})()`);
+        Object.assign(result,{newProjectDialogResult});
         if (process.env.BEARAI_SMOKE_DETAIL_SCREENSHOT) {
           await win.webContents.executeJavaScript(
             `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),input=document.querySelector('.add input'),setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(input,'界面布局检查任务');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'Enter'}));await wait(300);[...document.querySelectorAll('.task-kind button')].find(x=>x.textContent.includes('高级任务'))?.click();await wait(450)})()`,
@@ -259,7 +555,7 @@ function createWindow() {
         );
         Object.assign(result, { projectHeaderResult });
         const expansionMenuResult = await win.webContents.executeJavaScript(
-          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),defaultRow=[...document.querySelectorAll('.list-row')].find(row=>row.querySelector('b')?.textContent==='默认项目');defaultRow?.querySelector('.list-main')?.click();await wait(120);document.querySelector('.more')?.click();await wait(80);document.querySelector('.theme-swatches button[aria-label="林间"]')?.click();await wait(220);document.querySelector('.more')?.click();await wait(100);const menu=document.querySelector('.project-menu'),labels=menu?[...menu.querySelectorAll('.menu-label')].map(x=>x.textContent.trim()):[],buttonElements=menu?[...menu.querySelectorAll('button')]:[],buttons=buttonElements.map(x=>x.textContent.trim()),trigger=menu?.querySelector('.depth-picker-trigger');trigger?.click();await wait(80);const options=[...document.querySelectorAll('.depth-picker-menu [role=option]')].map(x=>x.textContent.trim()),manual=buttonElements.find(x=>x.textContent.includes('手动排序')),depth=buttonElements.find(x=>x.textContent.includes('默认展开到')),rect=trigger?.getBoundingClientRect(),triggerText=trigger?.textContent.trim(),selectFont=trigger?getComputedStyle(trigger).fontSize:null,manualFont=manual?getComputedStyle(manual).fontSize:null,depthFont=depth?getComputedStyle(depth).fontSize:null,resetButton=buttonElements.find(x=>x.textContent.includes('重设为全局默认'));resetButton?.click();await wait(300);const resetToGlobal=!!resetButton&&document.querySelector('.shell')?.classList.contains('theme-coast');return{menuFound:!!menu,labels,buttons,options,first:options[0],triggerText,triggerWidth:rect?.width,hasRemember:buttons.includes('记住上次展开情况'),hasProjectExpansion:labels.includes('项目展开'),manualFont,depthFont,selectFont,resetToGlobal}})()`,
+          `(async()=>{const wait=ms=>new Promise(r=>setTimeout(r,ms)),defaultRow=[...document.querySelectorAll('.list-row')].find(row=>row.querySelector('b')?.textContent==='默认项目'),main=defaultRow?.querySelector('.list-main');main?.dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));await wait(80);const inlineInput=defaultRow?.querySelector('.project-inline-input'),renameDragDisabled=defaultRow?.getAttribute('draggable')==='false'&&inlineInput?.getAttribute('draggable')==='false';inlineInput?.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));main?.click();await wait(120);document.querySelector('.more')?.click();await wait(80);document.querySelector('.theme-swatches button[aria-label="林间"]')?.click();await wait(220);document.querySelector('.more')?.click();await wait(100);const menu=document.querySelector('.project-menu'),labels=menu?[...menu.querySelectorAll('.menu-label')].map(x=>x.textContent.trim()):[],buttonElements=menu?[...menu.querySelectorAll('button')]:[],buttons=buttonElements.map(x=>x.textContent.trim()),choices=menu?[...menu.querySelectorAll('.task-expansion-choice')]:[],checkedChoices=choices.filter(x=>x.getAttribute('aria-checked')==='true').map(x=>x.textContent.trim()),trigger=menu?.querySelector('.depth-picker-trigger');trigger?.click();await wait(80);const options=[...document.querySelectorAll('.depth-picker-menu [role=option]')].map(x=>x.textContent.trim()),manual=buttonElements.find(x=>x.textContent.includes('手动排序')),depth=buttonElements.find(x=>x.textContent.includes('默认展开到')),rect=trigger?.getBoundingClientRect(),triggerText=trigger?.textContent.trim(),selectFont=trigger?getComputedStyle(trigger).fontSize:null,manualFont=manual?getComputedStyle(manual).fontSize:null,depthFont=depth?getComputedStyle(depth).fontSize:null,resetButton=buttonElements.find(x=>x.textContent.includes('重设为全局默认'));resetButton?.click();await wait(300);const resetToGlobal=!!resetButton&&document.querySelector('.shell')?.classList.contains('theme-coast');return{menuFound:!!menu,labels,buttons,options,first:options[0],triggerText,triggerWidth:rect?.width,hasRemember:buttons.includes('记住上次展开情况'),hasProjectExpansion:labels.includes('项目展开'),choiceCount:choices.length,checkedChoices,renameDragDisabled,manualFont,depthFont,selectFont,resetToGlobal}})()`,
         );
         Object.assign(result, { expansionMenuResult });
         if (process.env.BEARAI_SMOKE_MENU_SCREENSHOT) {
@@ -288,6 +584,7 @@ function createWindow() {
             (await win.webContents.capturePage()).toPNG(),
           );
         }
+        Object.assign(result, { smokeRendererMessages });
         console.log(`BEARAI_SMOKE ${JSON.stringify(result)}`);
         const layoutPass =
           result.layoutResult.nav.height > 700 &&
@@ -319,6 +616,9 @@ function createWindow() {
           result.expansionMenuResult.triggerWidth >= 110 &&
           result.expansionMenuResult.hasRemember &&
           result.expansionMenuResult.hasProjectExpansion &&
+          result.expansionMenuResult.choiceCount === 3 &&
+          result.expansionMenuResult.checkedChoices.length === 1 &&
+          result.expansionMenuResult.renameDragDisabled &&
           result.expansionMenuResult.resetToGlobal &&
           result.expansionMenuResult.manualFont ===
             result.expansionMenuResult.depthFont &&
@@ -332,6 +632,11 @@ function createWindow() {
           result.detailControlsResult.quickChoices.includes("选择日期和时间") &&
           result.detailControlsResult.datePickerOpened &&
           result.detailControlsResult.reminderPersisted;
+        const projectDragPass=result.dragQaResult.projectIndicator.allowed&&result.dragQaResult.crossMoveIndicator.allowed&&result.dragQaResult.crossParentPersisted&&result.dragQaResult.subtreeTasksPreserved&&result.dragQaResult.cycleIndicator.forbidden&&result.dragQaResult.selfIndicator.forbidden;
+        const archiveDialogPass=result.archiveDialogResult.warning&&result.archiveDialogResult.initialFocus&&result.archiveDialogResult.escClosed&&result.archiveDialogResult.focusRestored&&result.archiveDialogResult.closeClosed&&result.archiveDialogResult.backdropClosed&&result.archiveDialogResult.confirmed;
+        const editorToolbarPass=result.editorToolbarResult.editorFound&&result.editorToolbarResult.toolbar.length===12&&result.editorToolbarResult.toolbar.every((item:{disabled:boolean})=>!item.disabled)&&result.editorToolbarResult.boldApplied&&result.editorToolbarResult.boldRemoved&&result.editorToolbarResult.italicApplied&&result.editorToolbarResult.strikeApplied&&result.editorToolbarResult.headingApplied&&result.editorToolbarResult.headingRemoved&&result.editorToolbarResult.bulletApplied&&result.editorToolbarResult.bulletRemoved&&result.editorToolbarResult.orderedApplied&&result.editorToolbarResult.quoteApplied&&result.editorToolbarResult.inlineCodeApplied&&result.editorToolbarResult.codeBlockApplied&&result.editorToolbarResult.codeBlockRemoved&&result.editorToolbarResult.undoApplied&&result.editorToolbarResult.redoApplied&&result.editorToolbarResult.crossParagraphBold&&result.editorToolbarResult.floatingButtons.join(',')==='bold,italic,strikethrough,code,link'&&result.editorToolbarResult.floatingBoldApplied&&result.editorToolbarResult.floatingBoldRemoved&&result.editorToolbarResult.FloatingItalicApplied&&result.editorToolbarResult.FloatingItalicRemoved&&result.editorToolbarResult.FloatingStrikeApplied&&result.editorToolbarResult.FloatingStrikeRemoved&&result.editorToolbarResult.FloatingCodeApplied&&result.editorToolbarResult.FloatingCodeRemoved&&result.editorToolbarResult.FloatingLinkEditorOpened&&result.editorToolbarResult.FloatingLinkApplied&&result.editorToolbarResult.FloatingLinkRemoved&&result.editorToolbarResult.clipboardText&&result.editorToolbarResult.clipboardHtml&&result.editorToolbarResult.clipboardImage&&result.editorToolbarResult.uploadButtonVisible&&result.editorToolbarResult.uploadTriggered&&result.editorToolbarResult.inlineAttachmentCount>=2&&result.editorToolbarResult.inlineFiles.every(Boolean);
+        const headerLayoutPass=[result.headerLayoutAdvanced,result.headerLayoutNoDetail].every((layout:{listWidth:number;twoRows:boolean;titleHeight:number;moreVisible:boolean;headerOverflow:boolean;bodyOverflow:boolean})=>(layout.listWidth>900||layout.twoRows)&&layout.titleHeight<80&&layout.moreVisible&&!layout.headerOverflow&&!layout.bodyOverflow);
+        const newProjectDialogPass=result.newProjectDialogResult.focused&&result.newProjectDialogResult.escClosed&&result.newProjectDialogResult.focusRestored&&result.newProjectDialogResult.enterCreated;
         const workspacePass =
           result.workspaceQaResult.registered &&
           result.workspaceQaResult.menuVisible &&
@@ -340,7 +645,11 @@ function createWindow() {
           result.workspaceQaResult.isolatedProjects &&
           result.workspaceQaResult.activeLabel === "第二工作区" &&
           result.workspaceQaResult.restored &&
-          result.workspaceQaResult.originalProjects;
+          result.workspaceQaResult.originalProjects &&
+          result.workspaceQaResult.refreshButtonFound &&
+          result.workspaceQaResult.refreshTitle === "重新加载项目及任务文件" &&
+          result.workspaceQaResult.absentBeforeRefresh &&
+          result.workspaceQaResult.appearedAfterRefresh;
         const completedSectionPass =
           result.completedSectionResult.collapsed &&
           result.completedSectionResult.label?.includes("已完成") &&
@@ -357,6 +666,7 @@ function createWindow() {
           result.completedChildGroupResult.persisted === "active" &&
           result.completedChildGroupResult.remaining === 1 &&
           result.completedChildGroupResult.activeChild;
+        const voidedUiPass=result.voidedUiResult.buttonFound&&result.voidedUiResult.persistedStatus==='voided'&&result.voidedUiResult.reason==='仅当天有效'&&result.voidedUiResult.collapsed&&result.voidedUiResult.restoredStatus==='active'&&result.voidedUiResult.history?.join('|')==='voided|active';
         app.exit(
           result.projectPersisted &&
             result.childProjectPersisted &&
@@ -364,6 +674,11 @@ function createWindow() {
             result.childPersisted &&
             result.dragQaResult.taskNested &&
             result.dragQaResult.dropIndicatorsCleared &&
+            projectDragPass &&
+            archiveDialogPass &&
+            editorToolbarPass &&
+            headerLayoutPass &&
+            newProjectDialogPass &&
             result.taskProjectMoveQaResult.confirmationVisible &&
             result.taskProjectMoveQaResult.canceled &&
             result.taskProjectMoveQaResult.moved &&
@@ -387,9 +702,18 @@ function createWindow() {
             result.customThemeUiResult.globalCoast &&
             !result.customThemeUiResult.cloneErrorBeforeSave &&
             result.detailInitiallyHidden &&
+            result.projectTreeCountResult.parent === "3" &&
+            result.projectTreeCountResult.child === "3" &&
+            result.recurrenceResult.clicked &&
+            result.recurrenceResult.count === 2 &&
+            result.recurrenceResult.oldStatus === "completed" &&
+            result.recurrenceResult.newStatus === "active" &&
+            result.recurrenceResult.oldId !== result.recurrenceResult.newId &&
+            result.recurrenceResult.oldDue !== result.recurrenceResult.newDue &&
             workspacePass &&
             completedSectionPass &&
             completedChildGroupPass &&
+            voidedUiPass &&
             layoutPass &&
             interactionPass &&
             projectHeaderPass &&
@@ -477,6 +801,17 @@ app.whenReady().then(async () => {
       return saved;
     },
   );
+  ipcMain.handle("tasks:complete", async (_event, taskId: string, expectedRevision: number) => {
+    const result = await repository.complete(taskId, expectedRevision);
+    scheduleReminder(result.completed);
+    if (result.next) scheduleReminder(result.next);
+    return result;
+  });
+  ipcMain.handle("tasks:void",async(_event,taskId:string,expectedRevision:number,reason?:string)=>{const result=await repository.void(taskId,expectedRevision,reason);scheduleReminder(result.voided);if(result.next)scheduleReminder(result.next);return result});
+  ipcMain.handle("tasks:restore-voided",async(_event,taskId:string,expectedRevision:number)=>{const task=await repository.restoreVoided(taskId,expectedRevision);scheduleReminder(task);return task});
+  ipcMain.handle("tasks:instances:find",(_event,instanceKey:string)=>repository.findInstance(instanceKey));
+  ipcMain.handle("tasks:instances:ensure",async(_event,request)=>{const result=await repository.ensureInstance(request);scheduleReminder(result.task);return result});
+  ipcMain.handle("tasks:instances:void-expired",async(_event,today:string,reason?:string)=>{const tasks=await repository.voidExpired(today,reason);tasks.forEach(scheduleReminder);return tasks});
   ipcMain.handle("tasks:place", async (_event, placement) => {
     const saved = await repository.place(placement);
     scheduleReminder(saved);
@@ -544,6 +879,15 @@ app.whenReady().then(async () => {
       } satisfies TaskAttachment;
     },
   );
+  ipcMain.handle("clipboard:read-image", () => {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return null;
+    return {
+      name: `clipboard-${Date.now()}.png`,
+      mime: "image/png",
+      bytes: Array.from(image.toPNG()),
+    };
+  });
   ipcMain.handle(
     "attachments:remove",
     async (_event, attachment: TaskAttachment) => {
@@ -638,8 +982,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("projects:move-checked", (_event, placement) =>
     projectRepository.moveChecked(placement),
   );
-  ipcMain.handle("projects:archive", (_event, projectId: string) =>
-    projectRepository.archive(projectId),
+  ipcMain.handle("projects:archive", (_event, projectId: string,expectedRevision?:number) =>
+    projectRepository.archive(projectId,expectedRevision),
   );
   ipcMain.handle("settings:get", async () => {
     const registry = await workspaceRegistryRepository.read();
@@ -817,10 +1161,31 @@ app.whenReady().then(async () => {
       );
     if (!projects.some((project) => project.name === "拖拽目标项目"))
       await projectRepository.create("拖拽目标项目", null);
+    let dragParentA=(await projectRepository.list()).find(project=>project.name==='跨父源项目');
+    if(!dragParentA)dragParentA=await projectRepository.create('跨父源项目',null);
+    let dragParentB=(await projectRepository.list()).find(project=>project.name==='跨父目标项目');
+    if(!dragParentB)dragParentB=await projectRepository.create('跨父目标项目',null);
+    let dragChild=(await projectRepository.list()).find(project=>project.name==='跨父子项目');
+    if(!dragChild)dragChild=await projectRepository.create('跨父子项目',dragParentA.projectId);
+    let dragGrandchild=(await projectRepository.list()).find(project=>project.name==='跨父孙项目');
+    if(!dragGrandchild)dragGrandchild=await projectRepository.create('跨父孙项目',dragChild.projectId);
+    let archiveQaProject=(await projectRepository.list()).find(project=>project.name==='归档弹窗项目');
+    if(!archiveQaProject)archiveQaProject=await projectRepository.create('归档弹窗项目',null);
+    let countParent = projects.find(project => project.name === "计数父项目");
+    if (!countParent) countParent = await projectRepository.create("计数父项目", null);
+    let countChild = (await projectRepository.list()).find(project => project.name === "计数子项目");
+    if (!countChild) countChild = await projectRepository.create("计数子项目", countParent.projectId);
+    let recurrenceProject = (await projectRepository.list()).find(project => project.name === "重复验收项目");
+    if (!recurrenceProject) recurrenceProject = await projectRepository.create("重复验收项目", null);
+    for (const title of ["子项目计数任务一", "子项目计数任务二", "子项目计数任务三"])
+      if (!existingTitles.has(title)) await repository.create(title, countChild.projectId);
     if (!existingTitles.has("拖拽任务一"))
       await repository.create("拖拽任务一", defaultProject.projectId);
     if (!existingTitles.has("拖拽任务二"))
       await repository.create("拖拽任务二", defaultProject.projectId);
+    if(!existingTitles.has('跨父任务'))await repository.create('跨父任务',dragChild.projectId)
+    if(!existingTitles.has('跨父孙任务'))await repository.create('跨父孙任务',dragGrandchild.projectId)
+    if(!existingTitles.has('归档警告任务'))await repository.create('归档警告任务',archiveQaProject.projectId)
     for (const title of ["已完成冒烟任务一", "已完成冒烟任务二"])
       if (!existingTitles.has(title)) {
         const completed = await repository.create(title, defaultProject.projectId);
@@ -842,6 +1207,11 @@ app.whenReady().then(async () => {
         );
         await repository.save({ ...child, status: "completed" }, child.revision);
       }
+    }
+    if (!existingTitles.has("每日重复冒烟任务")) {
+      const recurring = await repository.create("每日重复冒烟任务", recurrenceProject.projectId);
+      const today = new Date(), due = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+      await repository.save({ ...recurring, due, repeat: { frequency: "daily", interval: 1 } }, recurring.revision);
     }
     const task = await repository.create("PNG附件冒烟任务");
     const id = randomUUID(),

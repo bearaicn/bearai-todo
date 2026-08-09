@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { Task, TaskAttachment, TaskKind, UserIdentity } from "./domain/task";
 import type {
   Project,
@@ -7,11 +7,14 @@ import type {
   ProjectViewSettings,
 } from "./domain/project";
 import { withoutLegacyExpansionSettings } from "./domain/project";
-import { childTasks, completedProjectTasks as queryCompletedProjectTasks, dueState, partitionChildTasks, queryTasks } from "./domain/taskQueries";
+import { activeProjectTreeTaskCount, childTasks, completedProjectTasks as queryCompletedProjectTasks, voidedProjectTasks as queryVoidedProjectTasks, dueState, partitionChildTasks, queryTasks } from "./domain/taskQueries";
+import { nextRepeatDue } from "./domain/taskRecurrence";
 import { builtInThemes, resolveThemeId, themeTokens, type CustomTheme } from "./domain/theme";
 import type { WorkspaceRegistry } from "./infrastructure/workspaceRegistryRepository";
 import AppIcon from "./components/AppIcon.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
+import ConfirmDialog from './components/ConfirmDialog.vue'
+import {resolveProjectDrop,type ProjectDropMode} from './domain/projectPlacement'
 import SchedulePicker from "./components/SchedulePicker.vue";
 import "./task-detail.css";
 
@@ -42,6 +45,8 @@ const contextMenu = ref<{ project: Project; x: number; y: number } | null>(
   accountMenu = ref(false),
   workspaceMenu = ref(false);
 const inputDialog = ref<Dialog | null>(null),
+  inputDialogNameInput = ref<HTMLInputElement>(),
+  inputDialogTrigger = ref<HTMLElement>(),
   propertiesProject = ref<Project | null>(null),
   moveProject = ref<Project | null>(null);
 type UiSettings = {
@@ -64,7 +69,8 @@ const settingsOpen = ref(false),
 const workspaceRegistry = ref<WorkspaceRegistry | null>(null),
   workspaceManagerOpen = ref(false),
   workspaceName = ref("新工作区"),
-  workspaceBusy = ref(false);
+  workspaceBusy = ref(false),
+  workspaceRefreshing = ref(false);
 const activeWorkspace = computed(() =>
   workspaceRegistry.value?.workspaces.find(
     (item) => item.workspaceId === workspaceRegistry.value?.activeWorkspaceId,
@@ -104,11 +110,14 @@ const conflict = ref<{ local: Task; disk: Task } | null>(null);
 const expandedTasks = ref(new Set<string>()),
   completedSectionExpanded = ref(false),
   expandedCompletedChildGroups = ref(new Set<string>()),
+  voidedSectionExpanded = ref(false),
+  expandedVoidedChildGroups = ref(new Set<string>()),
   editingProjectId = ref<string>(),
   editingProjectName = ref(""),
   sortMode = ref<"manual" | "title" | "updated">("manual");
-const draggedProjectId=ref<string|null>(null),projectDropId=ref<string|null>(null),projectDropAllowed=ref(false),draggedTaskId=ref<string|null>(null),taskDrop=ref<{taskId:string;mode:'before'|'child'|'after'}|null>(null);
+const draggedProjectId=ref<string|null>(null),projectDrop=ref<{projectId:string;mode:ProjectDropMode;allowed:boolean;reason?:string}|null>(null),draggedTaskId=ref<string|null>(null),taskDrop=ref<{taskId:string;mode:'before'|'child'|'after'}|null>(null);
 const moveTarget=ref<Project|null>(null),pendingTaskMove=ref<{task:Task;target:Project}|null>(null);
+const archiveConfirm=ref<{project:Project;ids:Set<string>;active:number;message:string}|null>(null)
 const smart = [
   { id: "today", icon: "sun", name: "今日待办" },
   { id: "favorites", icon: "star", name: "收藏" },
@@ -182,13 +191,7 @@ const breadcrumbs = computed(() => {
   return result;
 });
 function taskCounts(projectId: string) {
-  const all = tasks.value.filter(
-    (task) => task.projectId === projectId && task.status !== "completed",
-  );
-  return {
-    top: all.filter((task) => !task.parentId).length,
-    total: all.length,
-  };
+  return activeProjectTreeTaskCount(tasks.value, projects.value, projectId);
 }
 const statusStats = computed(() => {
   const current = currentProject.value,
@@ -263,11 +266,12 @@ const shown = computed(() => {
 const visibleTaskRows = computed(() => {
   type Row =
     | { kind: "task"; task: Task; depth: number; hasChildren: boolean }
-    | { kind: "completed-group"; parentId: string; depth: number; tasks: Task[] };
+    | { kind: "completed-group"; parentId: string; depth: number; tasks: Task[] }
+    | { kind: "voided-group"; parentId: string; depth: number; tasks: Task[] };
   const rows: Row[] = [];
   const visit = (task: Task, depth: number) => {
     const children = childTasks(tasks.value, task.id),
-      { active: activeChildren, completed: completedChildren } = partitionChildTasks(tasks.value, task.id);
+      { active: activeChildren, completed: completedChildren, voided: voidedChildren } = partitionChildTasks(tasks.value, task.id);
     rows.push({ kind: "task", task, depth, hasChildren: children.length > 0 });
     if (expandedTasks.value.has(task.id)) {
       activeChildren.forEach((child) => visit(child, depth + 1));
@@ -278,6 +282,7 @@ const visibleTaskRows = computed(() => {
           depth: depth + 1,
           tasks: completedChildren,
         });
+      if (voidedChildren.length) rows.push({kind:"voided-group",parentId:task.id,depth:depth+1,tasks:voidedChildren});
     }
   };
   shown.value.forEach((task) => visit(task, 0));
@@ -290,6 +295,10 @@ const completedProjectTasks = computed(() => {
     currentProject.value.projectId,
     listSearch.value || search.value,
   );
+});
+const voidedProjectTasks = computed(() => {
+  if (!currentProject.value) return [];
+  return queryVoidedProjectTasks(tasks.value,currentProject.value.projectId,listSearch.value || search.value);
 });
 const children = computed(() =>
   selected.value ? childTasks(tasks.value, selected.value.id) : [],
@@ -315,7 +324,7 @@ function closeMenus() {
   accountMenu.value = false;
   workspaceMenu.value = false;
 }
-async function load() {
+async function load():Promise<boolean> {
   try {
     const api = bridge();
     await api.health();
@@ -327,8 +336,32 @@ async function load() {
     ]);
     if (settings.value && !settings.value.currentUser) settings.value.currentUser={id:'local-self',name:'本地用户',email:''};
     error.value = "";
+    return true;
   } catch (reason) {
     error.value = message(reason);
+    return false;
+  }
+}
+async function refreshWorkspace() {
+  if (workspaceRefreshing.value || workspaceBusy.value) return;
+  workspaceRefreshing.value = true;
+  const selectedId = selected.value?.id;
+  try {
+    await flushSave(selected.value);
+    const loaded = await load();
+    if (!loaded) return;
+    selected.value = selectedId
+      ? tasks.value.find((item) => item.id === selectedId)
+      : undefined;
+    if (
+      typeof view.value === "string" &&
+      !["today", "important", "planned", "all", "completed"].includes(view.value) &&
+      !projects.value.some((item) => item.projectId === view.value)
+    ) view.value = "today";
+  } catch (reason) {
+    error.value = message(reason);
+  } finally {
+    workspaceRefreshing.value = false;
   }
 }
 async function switchWorkspace(workspaceId: string) {
@@ -564,12 +597,35 @@ function markdownPreview(source: string) {
 function editorMarkdown(task:Task){return task.attachments.reduce((text,item)=>text.replaceAll(item.relativePath,`bearai-asset://attachment/${item.id}`),task.note)}
 function persistedMarkdown(task:Task,markdown:string){return task.attachments.reduce((text,item)=>text.replaceAll(`bearai-asset://attachment/${item.id}`,item.relativePath),markdown)}
 async function uploadEditorImage(file:File){const task=selected.value;if(!task)throw new Error('没有选中的任务');const attachment={...(await bridge().importEditorImage(task.id,file.name,file.type,await file.arrayBuffer())),role:'inline' as const};task.attachments=[...task.attachments,attachment];queueSave(task,{attachments:task.attachments});await flushSave(task);if(saveState.value==='failed')throw new Error(saveFailure.value);return `bearai-asset://attachment/${attachment.id}`}
+async function readClipboardEditorImage(){const value=await bridge().readClipboardImage();return value?new File([new Uint8Array(value.bytes)],value.name,{type:value.mime}):null}
 function editorChanged(markdown:string){const task=selected.value;if(task)queueSave(task,{note:persistedMarkdown(task,markdown)})}
 async function toggleDone(task: Task) {
-  await save(task, {
-    status: task.status === "completed" ? "active" : "completed",
-    completedAt: task.status === "completed" ? null : new Date().toISOString(),
-  });
+  if(task.status==='voided'){await restoreVoided(task);return}
+  if (task.status === "completed") {
+    await save(task, { status: "active", completedAt: null });
+    return;
+  }
+  try {
+    if (selected.value) await flushSave(selected.value);
+    const result = await bridge().completeTask(task.id, task.revision);
+    Object.assign(task, result.completed);
+    if (result.next) tasks.value.unshift(result.next);
+    saveState.value = "saved";
+  } catch (reason) {
+    error.value = message(reason);
+  }
+}
+async function voidTask(task:Task){
+  const reason=window.prompt('作废原因（将保留在任务历史中）','不再执行')?.trim();if(reason===undefined)return;
+  try{await flushSave(selected.value);const result=await bridge().voidTask(task.id,task.revision,reason||'用户作废');Object.assign(task,result.voided);if(result.next&&!tasks.value.some(item=>item.id===result.next!.id))tasks.value.unshift(result.next);saveState.value='saved'}catch(reason){error.value=message(reason)}
+}
+async function restoreVoided(task:Task){try{const restored=await bridge().restoreVoidedTask(task.id,task.revision);Object.assign(task,restored);saveState.value='saved'}catch(reason){error.value=message(reason)}}
+async function setRepeat(frequency: string) {
+  const task = selected.value;
+  if (!task) return;
+  if (!frequency) return save(task, { repeat: null });
+  const repeat = { frequency: frequency as NonNullable<Task["repeat"]>["frequency"], interval: 1 };
+  await save(task, { repeat, due: task.due ?? nextRepeatDue(repeat) });
 }
 async function addChildTask() {
   const parent = selected.value,
@@ -607,7 +663,18 @@ function openBlankContext(event: MouseEvent) {
   closeMenus();
   blankMenu.value = { x: event.clientX, y: event.clientY };
 }
-function openDialog(kind: Dialog["kind"], project?: Project, task?: Task) {
+async function openDialog(
+  kind: Dialog["kind"],
+  project?: Project,
+  task?: Task,
+  trigger?: EventTarget | null,
+) {
+  inputDialogTrigger.value =
+    trigger instanceof HTMLElement
+      ? trigger
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
   closeMenus();
   inputDialog.value = {
     kind,
@@ -615,7 +682,7 @@ function openDialog(kind: Dialog["kind"], project?: Project, task?: Task) {
     task,
     value:
       kind === "subproject" || kind === "rootProject"
-        ? ""
+        ? (kind === "rootProject" ? newProjectName.value : "")
         : (project?.name ?? task?.title ?? ""),
     title:
       kind === "rootProject"
@@ -626,7 +693,11 @@ function openDialog(kind: Dialog["kind"], project?: Project, task?: Task) {
             ? "重命名子任务"
             : "重命名项目",
   };
+  await nextTick();
+  inputDialogNameInput.value?.focus();
+  if(inputDialog.value?.value)inputDialogNameInput.value?.select();
 }
+async function closeInputDialog(){inputDialog.value=null;await nextTick();inputDialogTrigger.value?.focus()}
 async function confirmInput() {
   const dialog = inputDialog.value,
     value = dialog?.value.trim();
@@ -641,7 +712,7 @@ async function confirmInput() {
         await bridge().renameProject(dialog.project.projectId, value),
       );
     else if (dialog.task) await save(dialog.task, { title: value });
-    inputDialog.value = null;
+    await closeInputDialog();
   } catch (reason) {
     error.value = message(reason);
   }
@@ -728,10 +799,10 @@ async function moveTo(parentId: string | null) {
     error.value = message(reason);
   }
 }
-function startProjectDrag(event:DragEvent,project:Project){draggedProjectId.value=project.projectId;event.dataTransfer?.setData('application/x-bearai-project',project.projectId);if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
-function overProject(event:DragEvent,target:Project){if(draggedTaskId.value){const task=tasks.value.find(item=>item.id===draggedTaskId.value);projectDropId.value=target.projectId;projectDropAllowed.value=Boolean(task&&task.projectId!==target.projectId&&!target.archived);if(projectDropAllowed.value){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}return}const source=projects.value.find(item=>item.projectId===draggedProjectId.value);projectDropId.value=target.projectId;projectDropAllowed.value=Boolean(source&&source.projectId!==target.projectId&&source.parentId===target.parentId);if(projectDropAllowed.value){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}else if(event.dataTransfer)event.dataTransfer.dropEffect='none'}
-async function dropOnProject(event:DragEvent,target:Project){event.preventDefault();if(draggedTaskId.value&&projectDropAllowed.value){const task=tasks.value.find(item=>item.id===draggedTaskId.value);if(task)pendingTaskMove.value={task,target}}else if(draggedProjectId.value&&projectDropAllowed.value){const source=projects.value.find(item=>item.projectId===draggedProjectId.value);if(source)try{await bridge().reorderProject({projectId:source.projectId,parentId:source.parentId,beforeId:target.projectId,expectedRevision:source.revision});projects.value=await bridge().listProjects()}catch(reason){error.value=message(reason)}}clearDrag()}
-function clearDrag(){draggedProjectId.value=null;draggedTaskId.value=null;projectDropId.value=null;projectDropAllowed.value=false;taskDrop.value=null}
+function startProjectDrag(event:DragEvent,project:Project){if(editingProjectId.value===project.projectId){event.preventDefault();return}draggedProjectId.value=project.projectId;event.dataTransfer?.setData('application/x-bearai-project',project.projectId);if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
+function overProject(event:DragEvent,target:Project){if(draggedTaskId.value){const task=tasks.value.find(item=>item.id===draggedTaskId.value),allowed=Boolean(task&&task.projectId!==target.projectId&&!target.archived);projectDrop.value={projectId:target.projectId,mode:'inside',allowed,reason:allowed?undefined:'任务不能移动到该项目'};if(allowed){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}return}if(!draggedProjectId.value)return;const rect=(event.currentTarget as HTMLElement).getBoundingClientRect(),ratio=(event.clientY-rect.top)/rect.height,mode:ProjectDropMode=ratio<.28?'before':ratio>.72?'after':'inside',decision=resolveProjectDrop(projects.value,draggedProjectId.value,target.projectId,mode);projectDrop.value={projectId:target.projectId,mode,allowed:decision.allowed,reason:decision.allowed?undefined:decision.reason};if(decision.allowed){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}else if(event.dataTransfer)event.dataTransfer.dropEffect='none'}
+async function dropOnProject(event:DragEvent,target:Project){event.preventDefault();const state=projectDrop.value;if(draggedTaskId.value&&state?.projectId===target.projectId&&state.allowed){const task=tasks.value.find(item=>item.id===draggedTaskId.value);if(task)pendingTaskMove.value={task,target}}else if(draggedProjectId.value&&state?.projectId===target.projectId){const source=projects.value.find(item=>item.projectId===draggedProjectId.value),decision=resolveProjectDrop(projects.value,draggedProjectId.value,target.projectId,state.mode);if(!decision.allowed){error.value=decision.reason}else if(source)try{if(decision.operation==='reorder')await bridge().reorderProject({projectId:source.projectId,parentId:decision.parentId,beforeId:decision.beforeId??null,afterId:decision.afterId??null,expectedRevision:source.revision});else await bridge().moveProjectChecked({projectId:source.projectId,targetParentId:decision.parentId!,expectedRevision:source.revision});projects.value=await bridge().listProjects();if(decision.operation==='move'){const parent=projects.value.find(item=>item.projectId===decision.parentId);if(parent?.collapsed)Object.assign(parent,await bridge().updateProject(parent.projectId,{collapsed:false}))}}catch(reason){error.value=message(reason)}}clearDrag()}
+function clearDrag(){draggedProjectId.value=null;draggedTaskId.value=null;projectDrop.value=null;taskDrop.value=null}
 function startTaskDrag(event:DragEvent,task:Task){draggedTaskId.value=task.id;event.dataTransfer?.setData('application/x-bearai-task',task.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
 function overTask(event:DragEvent,target:Task){if(!draggedTaskId.value||draggedTaskId.value===target.id||!currentProject.value||search.value||listSearch.value||effectiveView.value.sortMode!=='manual')return;event.preventDefault();const rect=(event.currentTarget as HTMLElement).getBoundingClientRect(),ratio=(event.clientY-rect.top)/rect.height;taskDrop.value={taskId:target.id,mode:ratio<.3?'before':ratio>.7?'after':'child'};if(event.dataTransfer)event.dataTransfer.dropEffect='move'}
 async function dropOnTask(event:DragEvent,target:Task){event.preventDefault();const source=tasks.value.find(item=>item.id===draggedTaskId.value),drop=taskDrop.value;if(!source||!drop||drop.taskId!==target.id)return clearDrag();try{await flushSave(selected.value);await bridge().placeTask({taskId:source.id,sourceProjectId:source.projectId,targetProjectId:target.projectId,targetParentId:drop.mode==='child'?target.id:(target.parentId??null),beforeId:drop.mode==='before'?target.id:null,afterId:drop.mode==='after'?target.id:null,expectedRevision:source.revision});tasks.value=await bridge().listTasks()}catch(reason){error.value=message(reason)}finally{clearDrag()}}
@@ -826,8 +897,11 @@ const expansionDepthOptions = [
   { value: "all" as const, label: "全部" },
 ];
 function expansionDepthLabel(value: ProjectViewSettings["defaultTaskExpansion"]["depth"]){return expansionDepthOptions.find(item=>item.value===value)?.label??"全部"}
-async function openExpansionDepthMenu(){depthMenuOpen.value=!depthMenuOpen.value;if(effectiveView.value.defaultTaskExpansion.mode!=="depth")await setProjectView({defaultTaskExpansion:{mode:"depth",depth:effectiveView.value.defaultTaskExpansion.depth}},false)}
-async function chooseExpansionDepth(depth:ProjectViewSettings["defaultTaskExpansion"]["depth"]){depthMenuOpen.value=false;await setProjectView({defaultTaskExpansion:{mode:"depth",depth}})}
+type TaskExpansionChoice="collapsed"|"depth"|"remember";
+const selectedTaskExpansion=computed<TaskExpansionChoice>(()=>effectiveView.value.rememberTaskExpansion?"remember":effectiveView.value.defaultTaskExpansion.mode);
+async function selectTaskExpansion(choice:TaskExpansionChoice,close=true){if(choice==="remember")await setProjectView({rememberTaskExpansion:true},close);else await setProjectView({rememberTaskExpansion:false,defaultTaskExpansion:{...effectiveView.value.defaultTaskExpansion,mode:choice}},close)}
+async function openExpansionDepthMenu(){depthMenuOpen.value=!depthMenuOpen.value;if(selectedTaskExpansion.value!=="depth")await selectTaskExpansion("depth",false)}
+async function chooseExpansionDepth(depth:ProjectViewSettings["defaultTaskExpansion"]["depth"]){depthMenuOpen.value=false;await setProjectView({rememberTaskExpansion:false,defaultTaskExpansion:{mode:"depth",depth}})}
 async function resetProjectView() {
   const project = currentProject.value;
   if (!project) return;
@@ -883,19 +957,23 @@ async function archiveProject(project: Project) {
     (task) => ids.has(task.projectId) && task.status === "active",
   ).length;
   const warning = active
-    ? `项目及子项目中还有 ${active} 个未完成任务。归档后它们将从正常视图隐藏。\n\n仍然归档吗？`
-    : `归档项目“${project.name}”及其目录内容？`;
-  if (!window.confirm(warning)) return;
+    ? `“${project.name}”及其子项目中还有 ${active} 个未完成任务。归档后，项目目录和任务历史仍会保留，但会从正常视图隐藏。`
+    : `将“${project.name}”及其全部子项目移入归档。项目目录、任务和附件都会保留。`;
+  archiveConfirm.value={project,ids,active,message:warning};closeMenus()
+}
+async function confirmArchiveProject(){
+  const pending=archiveConfirm.value;if(!pending)return;archiveConfirm.value=null
   try {
-    await bridge().archiveProject(project.projectId);
-    projects.value = projects.value.filter((item) => !ids.has(item.projectId));
-    tasks.value = tasks.value.filter((task) => !ids.has(task.projectId));
-    if (ids.has(view.value)) view.value = "today";
+    await bridge().archiveProject(pending.project.projectId,pending.project.revision);
+    projects.value = projects.value.filter((item) => !pending.ids.has(item.projectId));
+    tasks.value = tasks.value.filter((task) => !pending.ids.has(task.projectId));
+    if (pending.ids.has(view.value)) view.value = "today";
     closeMenus();
   } catch (reason) {
     error.value = message(reason);
   }
 }
+function cancelArchiveProject(){const projectId=archiveConfirm.value?.project.projectId;archiveConfirm.value=null;void nextTick(()=>document.querySelector<HTMLElement>(`.list-row[data-project-id="${projectId}"] .list-main`)?.focus())}
 function message(reason: unknown) {
   return reason instanceof Error ? reason.message : "操作失败，请重新加载";
 }
@@ -935,7 +1013,7 @@ watch(
   },
   { immediate: true },
 );
-watch(view,async()=>{completedSectionExpanded.value=false;if(selected.value){await flushSave(selected.value);selected.value=undefined}});
+watch(view,async()=>{completedSectionExpanded.value=false;voidedSectionExpanded.value=false;if(selected.value){await flushSave(selected.value);selected.value=undefined}});
 watch(headerMenu,(open)=>{if(!open)depthMenuOpen.value=false});
 onMounted(load);
 </script>
@@ -993,17 +1071,19 @@ onMounted(load);
         <div
           v-for="row in projectRows"
           :key="row.project.projectId"
+          :data-project-id="row.project.projectId"
           class="list-row"
-          :class="{ selected: view === row.project.projectId, 'drop-allowed':projectDropId===row.project.projectId&&projectDropAllowed, 'drop-forbidden':projectDropId===row.project.projectId&&!projectDropAllowed }"
+          :class="{ selected: view === row.project.projectId, 'project-drop-before':projectDrop?.projectId===row.project.projectId&&projectDrop.allowed&&projectDrop.mode==='before', 'project-drop-inside':projectDrop?.projectId===row.project.projectId&&projectDrop.allowed&&projectDrop.mode==='inside', 'project-drop-after':projectDrop?.projectId===row.project.projectId&&projectDrop.allowed&&projectDrop.mode==='after', 'drop-forbidden':projectDrop?.projectId===row.project.projectId&&!projectDrop.allowed }"
+          :title="projectDrop?.projectId===row.project.projectId&&!projectDrop.allowed?projectDrop.reason:undefined"
           :style="{
             '--depth': row.depth,
             '--row-color': row.project.sidebarColor,
           }"
           @contextmenu.stop="openContext($event, row.project)"
-          draggable="true"
+          :draggable="editingProjectId !== row.project.projectId"
           @dragstart="startProjectDrag($event,row.project)"
           @dragover="overProject($event,row.project)"
-          @dragleave="projectDropId===row.project.projectId&&(projectDropId=null)"
+          @dragleave="projectDrop?.projectId===row.project.projectId&&(projectDrop=null)"
           @drop="dropOnProject($event,row.project)"
           @dragend="clearDrag"
         >
@@ -1032,20 +1112,27 @@ onMounted(load);
               v-if="editingProjectId === row.project.projectId"
               v-model="editingProjectName"
               class="project-inline-input"
+              draggable="false"
               @click.stop
+              @dblclick.stop
+              @pointerdown.stop
+              @mousedown.stop
+              @dragstart.stop.prevent
               @blur="finishInlineRename()"
               @keydown.enter.prevent="finishInlineRename()"
               @keydown.esc.prevent="finishInlineRename(false)"
             /><b v-else>{{ row.project.name }}</b
-            ><small class="project-counts" title="顶级任务 / 全部任务"
-              >{{ taskCounts(row.project.projectId).top }} /
-              {{ taskCounts(row.project.projectId).total }}</small
+            ><small class="project-counts" title="当前项目及全部子项目的未完成任务总数"
+              >{{ taskCounts(row.project.projectId) }}</small
             >
           </button>
         </div>
       </div>
       <div class="spacer" @contextmenu="openBlankContext" />
-      <form class="new-row" @submit.prevent="createProject(null)">
+      <form
+        class="new-row"
+        @submit.prevent="openDialog('rootProject', undefined, undefined, $event.submitter)"
+      >
         <input
           v-model="newProjectName"
           placeholder="新建项目"
@@ -1053,16 +1140,31 @@ onMounted(load);
         /><button aria-label="创建项目"><AppIcon name="plus" /></button>
       </form>
       <div class="workspace-wrap">
-        <button
-          class="workspace-block"
-          :aria-expanded="workspaceMenu"
-          aria-haspopup="menu"
-          @click.stop="workspaceMenu = !workspaceMenu"
-        >
-          <AppIcon name="folder" :size="17" />
-          <span>{{ activeWorkspace?.name ?? "工作区" }}</span>
-          <AppIcon name="chevron-up" :size="15" />
-        </button>
+        <div class="workspace-row">
+          <button
+            class="workspace-block"
+            :aria-expanded="workspaceMenu"
+            aria-haspopup="menu"
+            @click.stop="workspaceMenu = !workspaceMenu"
+          >
+            <AppIcon name="folder" :size="17" />
+            <span>{{ activeWorkspace?.name ?? "工作区" }}</span>
+          </button>
+          <button
+            class="workspace-refresh"
+            :class="{ refreshing: workspaceRefreshing }"
+            :disabled="workspaceRefreshing || workspaceBusy"
+            aria-label="刷新当前工作区"
+            title="重新加载项目及任务文件"
+            @click.stop="refreshWorkspace"
+          ><AppIcon name="sync" :size="17" /></button>
+          <button
+            class="workspace-toggle"
+            :aria-expanded="workspaceMenu"
+            aria-label="选择或管理工作区"
+            @click.stop="workspaceMenu = !workspaceMenu"
+          ><AppIcon name="chevron-up" :size="15" /></button>
+        </div>
         <div v-if="workspaceMenu" class="workspace-menu floating-menu" role="menu" @click.stop>
           <button
             v-for="workspace in workspaceRegistry?.workspaces"
@@ -1171,7 +1273,7 @@ onMounted(load);
                 : "继承父项目或全局默认"
             }}
           </div>
-          <button @click="openDialog('renameProject', currentProject)">
+          <button @click="openDialog('renameProject', currentProject, undefined, $event.currentTarget)">
             <AppIcon name="edit" /><span>重命名项目</span></button
           ><button v-if="currentProject.parentId"
             @click="
@@ -1204,20 +1306,19 @@ onMounted(load);
           </button>
           <div class="menu-label">任务展开</div>
           <button
-            @click="
-              setProjectView({
-                defaultTaskExpansion: {...effectiveView.defaultTaskExpansion, mode: 'collapsed'},
-              })
-            "
+            class="task-expansion-choice"
+            role="menuitemradio"
+            :aria-checked="selectedTaskExpansion === 'collapsed'"
+            @click="selectTaskExpansion('collapsed')"
           >
             <span class="menu-check"
               ><AppIcon
-                v-if="effectiveView.defaultTaskExpansion.mode === 'collapsed'"
+                v-if="selectedTaskExpansion === 'collapsed'"
                 name="check"
                 :size="15" /></span
             ><span>默认不展开</span></button
-          ><div class="menu-depth expansion-depth-option"><button @click="setProjectView({defaultTaskExpansion:{...effectiveView.defaultTaskExpansion,mode:'depth'}},false)"><span class="menu-check"><AppIcon v-if="effectiveView.defaultTaskExpansion.mode==='depth'" name="check" :size="15"/></span><span>默认展开到</span></button><div class="depth-picker"><button class="depth-picker-trigger" aria-label="默认展开层级" :aria-expanded="depthMenuOpen" @click.stop="openExpansionDepthMenu"><span>{{expansionDepthLabel(effectiveView.defaultTaskExpansion.depth)}}</span><AppIcon name="chevron-down" :size="14"/></button><div v-if="depthMenuOpen" class="depth-picker-menu" role="listbox"><button v-for="option in expansionDepthOptions" :key="String(option.value)" role="option" :aria-selected="effectiveView.defaultTaskExpansion.depth===option.value" @click.stop="chooseExpansionDepth(option.value)"><AppIcon v-if="effectiveView.defaultTaskExpansion.depth===option.value" name="check" :size="14"/><span v-else class="menu-check"></span>{{option.label}}</button></div></div></div>
-          <button @click="setProjectView({rememberTaskExpansion:!effectiveView.rememberTaskExpansion})"><span class="menu-check"><AppIcon v-if="effectiveView.rememberTaskExpansion" name="check" :size="15"/></span><span>记住上次展开情况</span></button>
+          ><div class="menu-depth expansion-depth-option"><button class="task-expansion-choice" role="menuitemradio" :aria-checked="selectedTaskExpansion === 'depth'" @click="selectTaskExpansion('depth',false)"><span class="menu-check"><AppIcon v-if="selectedTaskExpansion==='depth'" name="check" :size="15"/></span><span>默认展开到</span></button><div class="depth-picker"><button class="depth-picker-trigger" aria-label="默认展开层级" :aria-expanded="depthMenuOpen" @click.stop="openExpansionDepthMenu"><span>{{expansionDepthLabel(effectiveView.defaultTaskExpansion.depth)}}</span><AppIcon name="chevron-down" :size="14"/></button><div v-if="depthMenuOpen" class="depth-picker-menu" role="listbox"><button v-for="option in expansionDepthOptions" :key="String(option.value)" role="option" :aria-selected="effectiveView.defaultTaskExpansion.depth===option.value" @click.stop="chooseExpansionDepth(option.value)"><AppIcon v-if="effectiveView.defaultTaskExpansion.depth===option.value" name="check" :size="14"/><span v-else class="menu-check"></span>{{option.label}}</button></div></div></div>
+          <button class="task-expansion-choice" role="menuitemradio" :aria-checked="selectedTaskExpansion === 'remember'" @click="selectTaskExpansion('remember')"><span class="menu-check"><AppIcon v-if="selectedTaskExpansion==='remember'" name="check" :size="15"/></span><span>记住上次展开情况</span></button>
           <div class="menu-label project-expand-label">项目展开</div>
           <button
             @click="
@@ -1282,7 +1383,7 @@ onMounted(load);
         </button>
         <template
           v-for="row in visibleTaskRows"
-          :key="row.kind === 'task' ? row.task.id : `completed-${row.parentId}`"
+          :key="row.kind === 'task' ? row.task.id : `${row.kind}-${row.parentId}`"
         >
         <article
           v-if="row.kind === 'task'"
@@ -1320,9 +1421,9 @@ onMounted(load);
           ><span v-else class="task-expand placeholder"></span
           ><button
             class="circle"
-            :class="{ done: row.task.status === 'completed' }"
+            :class="{ done: row.task.status === 'completed', voided: row.task.status === 'voided' }"
             :aria-label="
-              row.task.status === 'completed' ? '恢复任务' : '完成任务'
+              row.task.status === 'completed' ? '恢复任务' : row.task.status === 'voided' ? '重新启用任务' : '完成任务'
             "
             @click.stop="toggleDone(row.task)"
           >
@@ -1330,10 +1431,10 @@ onMounted(load);
               v-if="row.task.status === 'completed'"
               name="check"
               :size="14"
-            />
+            /><AppIcon v-else-if="row.task.status === 'voided'" name="archive" :size="13" />
           </button>
           <div>
-            <strong :class="{ strike: row.task.status === 'completed' }">{{
+            <strong :class="{ strike: row.task.status === 'completed', 'voided-title':row.task.status==='voided' }">{{
               row.task.title
             }}</strong
             ><small
@@ -1357,7 +1458,7 @@ onMounted(load);
           </button>
         </article>
         <section
-          v-else
+          v-else-if="row.kind === 'completed-group'"
           class="completed-section child-completed-section"
           :style="{ '--task-depth': row.depth }"
           :aria-label="`子任务已完成 ${row.tasks.length}`"
@@ -1388,6 +1489,10 @@ onMounted(load);
             </article>
           </div>
         </section>
+        <section v-else class="completed-section child-completed-section voided-section" :style="{ '--task-depth': row.depth }" :aria-label="`子任务已作废 ${row.tasks.length}`">
+          <button class="completed-toggle voided-toggle" :aria-expanded="expandedVoidedChildGroups.has(row.parentId)" @click="expandedVoidedChildGroups.has(row.parentId)?expandedVoidedChildGroups.delete(row.parentId):expandedVoidedChildGroups.add(row.parentId);expandedVoidedChildGroups=new Set(expandedVoidedChildGroups)"><AppIcon :name="expandedVoidedChildGroups.has(row.parentId)?'chevron-down':'chevron-right'" :size="16"/><AppIcon name="archive" :size="15"/><span>已作废</span><b>{{row.tasks.length}}</b></button>
+          <div v-if="expandedVoidedChildGroups.has(row.parentId)" class="completed-list"><article v-for="task in row.tasks" :key="task.id" class="completed-task voided-task child" :style="{'--task-depth':row.depth}" @click="selectTask(task)"><span class="task-expand placeholder"></span><button class="circle voided" aria-label="重新启用子任务" @click.stop="restoreVoided(task)"><AppIcon name="archive" :size="13"/></button><div><strong class="voided-title">{{task.title}}</strong><small>{{task.voidReason||'已作废子任务'}}</small></div></article></div>
+        </section>
         </template>
         <section v-if="currentProject && completedProjectTasks.length" class="completed-section" aria-label="已完成任务">
           <button
@@ -1417,11 +1522,16 @@ onMounted(load);
             </article>
           </div>
         </section>
+        <section v-if="currentProject && voidedProjectTasks.length" class="completed-section voided-section" aria-label="已作废任务">
+          <button class="completed-toggle voided-toggle" :aria-expanded="voidedSectionExpanded" @click="voidedSectionExpanded=!voidedSectionExpanded"><AppIcon :name="voidedSectionExpanded?'chevron-down':'chevron-right'" :size="16"/><AppIcon name="archive" :size="15"/><span>已作废</span><b>{{voidedProjectTasks.length}}</b></button>
+          <div v-if="voidedSectionExpanded" class="completed-list"><article v-for="task in voidedProjectTasks" :key="task.id" class="completed-task voided-task" :class="{active:selected?.id===task.id}" tabindex="0" @click="selectTask(task)" @keydown.enter="selectTask(task)"><span class="task-expand placeholder"></span><button class="circle voided" aria-label="重新启用任务" @click.stop="restoreVoided(task)"><AppIcon name="archive" :size="13"/></button><div><strong class="voided-title">{{task.title}}</strong><small>{{task.voidReason||'已作废任务'}}</small></div></article></div>
+        </section>
         <div v-if="currentProject && draggedTaskId" class="task-root-drop" @dragover.prevent @drop="dropTaskAtRoot">放到根任务末尾</div>
         <div
           v-if="
             !visibleTaskRows.length &&
             !completedProjectTasks.length &&
+            !voidedProjectTasks.length &&
             !(
               currentProject &&
               effectiveView.showSubprojects &&
@@ -1456,14 +1566,14 @@ onMounted(load);
         <div class="task-title">
           <button
             class="circle"
-            :class="{ done: selected.status === 'completed' }"
+            :class="{ done: selected.status === 'completed', voided:selected.status==='voided' }"
             @click="toggleDone(selected)"
           >
             <AppIcon
               v-if="selected.status === 'completed'"
               name="check"
               :size="14"
-            /></button
+            /><AppIcon v-else-if="selected.status==='voided'" name="archive" :size="13" /></button
           ><input
             v-model="selected.title"
             @input="queueSave(selected, { title: selected.title })"
@@ -1485,18 +1595,18 @@ onMounted(load);
           <div v-for="child in children" :key="child.id">
             <button
               class="circle"
-              :class="{ done: child.status === 'completed' }"
+              :class="{ done: child.status === 'completed', voided:child.status==='voided' }"
               @click="toggleDone(child)"
             >
               <AppIcon
                 v-if="child.status === 'completed'"
                 name="check"
                 :size="14"
-              /></button
+              /><AppIcon v-else-if="child.status==='voided'" name="archive" :size="13" /></button
             ><button
               class="step-name"
-              :class="{ strike: child.status === 'completed' }"
-              @dblclick="openDialog('renameChild', undefined, child)"
+              :class="{ strike: child.status === 'completed', 'voided-title':child.status==='voided' }"
+              @dblclick="openDialog('renameChild', undefined, child, $event.currentTarget)"
             >
               {{ child.title }}
             </button>
@@ -1516,17 +1626,7 @@ onMounted(load);
             ><AppIcon name="repeat" /><span>重复</span
             ><select
               :value="selected.repeat?.frequency ?? ''"
-              @change="
-                save(selected, {
-                  repeat: ($event.target as HTMLSelectElement).value
-                    ? {
-                        frequency: ($event.target as HTMLSelectElement)
-                          .value as any,
-                        interval: 1,
-                      }
-                    : null,
-                })
-              "
+              @change="setRepeat(($event.target as HTMLSelectElement).value)"
             >
               <option value="">不重复</option>
               <option value="daily">每天</option>
@@ -1591,11 +1691,15 @@ onMounted(load);
           placeholder="添加备注"
         ></textarea>
         <section v-else class="markdown-editor milkdown-editor-shell">
-          <MarkdownEditor :key="selected.id" :model-value="editorMarkdown(selected)" :upload-image="uploadEditorImage" @change="editorChanged" />
+          <MarkdownEditor :key="selected.id" :model-value="editorMarkdown(selected)" :upload-image="uploadEditorImage" :read-clipboard-image="readClipboardEditorImage" @change="editorChanged" />
         </section>
         <small class="created-at"
           >创建于 {{ new Date(selected.createdAt).toLocaleDateString() }}</small
         >
+        <section class="task-lifecycle-card" :class="{voided:selected.status==='voided'}">
+          <template v-if="selected.status==='voided'"><div><AppIcon name="archive" :size="18"/><span><b>任务已作废</b><small>{{selected.voidReason||'未填写原因'}}<template v-if="selected.voidedAt"> · {{new Date(selected.voidedAt).toLocaleString()}}</template></small></span></div><button @click="restoreVoided(selected)">重新启用</button></template>
+          <button v-else-if="selected.status==='active'" class="void-task-button" @click="voidTask(selected)"><AppIcon name="archive" :size="17"/>作废任务</button>
+        </section>
       </div>
     </aside>
     <div
@@ -1604,9 +1708,9 @@ onMounted(load);
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @click.stop
     >
-      <button @click="openDialog('subproject', contextMenu.project)">
+      <button @click="openDialog('subproject', contextMenu.project, undefined, $event.currentTarget)">
         <AppIcon name="plus" /><span>新增子项目</span></button
-      ><button @click="openDialog('renameProject', contextMenu.project)">
+      ><button @click="openDialog('renameProject', contextMenu.project, undefined, $event.currentTarget)">
         <AppIcon name="edit" /><span>重命名</span></button
       ><button @click="openProperties(contextMenu.project)">
         <AppIcon name="settings" /><span>属性</span></button
@@ -1624,24 +1728,26 @@ onMounted(load);
       :style="{ left: blankMenu.x + 'px', top: blankMenu.y + 'px' }"
       @click.stop
     >
-      <button @click="openDialog('rootProject')">
+      <button @click="openDialog('rootProject', undefined, undefined, $event.currentTarget)">
         <AppIcon name="plus" /><span>新增项目</span>
       </button>
     </div>
     <div
       v-if="inputDialog"
       class="modal-backdrop"
-      @click.self="inputDialog = null"
+       @click.self="closeInputDialog"
     >
-      <form class="modal compact" @submit.prevent="confirmInput">
-        <h2>{{ inputDialog.title }}</h2>
-        <input v-model="inputDialog.value" autofocus aria-label="名称" />
+       <form class="modal compact" @submit.prevent="confirmInput" @keydown.esc.prevent="closeInputDialog">
+         <button type="button" class="modal-close" aria-label="关闭新建项目对话框" @click="closeInputDialog"><AppIcon name="close" :size="17" /></button>
+         <h2>{{ inputDialog.title }}</h2>
+         <input ref="inputDialogNameInput" v-model="inputDialog.value" aria-label="名称" @keydown.enter.prevent="confirmInput" />
         <div class="modal-actions">
-          <button type="button" @click="inputDialog = null">取消</button
+           <button type="button" @click="closeInputDialog">取消</button
           ><button class="primary">确定</button>
         </div>
       </form>
     </div>
+    <ConfirmDialog v-if="archiveConfirm" title="归档项目？" :message="archiveConfirm.message" confirm-label="归档项目" danger @cancel="cancelArchiveProject" @confirm="confirmArchiveProject" />
     <div
       v-if="propertiesProject"
       class="modal-backdrop"
