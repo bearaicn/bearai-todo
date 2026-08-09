@@ -1,6 +1,7 @@
 node_modules/
 dist/
 dist-electron/
+release/
 coverage/
 .bearai-todo/
 *.log
@@ -12,3 +13,4 @@ coverage/
 .tmp-*-data/
 .tmp-*-data*/
 .qa/
+.tmp/

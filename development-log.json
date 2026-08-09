@@ -1,15 +1,17 @@
 {
-  "task": "修复任务展开菜单字号与自定义主题创建交互",
-  "status": "in-progress-after-ui-bugfix",
-  "filesModified": ["src/App.vue", "src/style.css", "electron/main.ts", "development-log.json"],
+  "task": "提交累计功能批次并交付 Windows 安装包、桌面快捷方式与原创图标",
+  "status": "in-progress-after-windows-installer-batch",
+  "filesModified": ["src/domain/project.ts", "src/domain/task.ts", "src/domain/taskQueries.ts", "src/infrastructure/taskCodec.ts", "src/infrastructure/taskRepository.ts", "src/infrastructure/workspaceRepository.ts", "src/App.vue", "src/style.css", "src/env.d.ts", "electron/main.ts", "electron/preload.cjs", "tests/taskRepository.test.ts", "tests/workspaceRepository.test.ts", "README.md", "docs/DATA_FORMAT.md", "docs/IMPLEMENTATION.md"],
   "validation": {
-    "unitTests": "47/47 pass across 5 files",
+    "unitTests": "57/57 pass; includes new default expansion depth all, child partition, completed sections, workspace, drag and move domain tests",
     "typecheck": "pass",
     "build": "pass",
-    "electronUiSmoke": "pass: isolated workspace/userData; project menu label, expansion label and select all compute to 14px; custom theme composer opens and submitted theme persists",
-    "visual": "2048px isolated Electron screenshots inspected: expansion row aligns with siblings and custom-theme composer is visible, bordered and readable",
-    "regression": "existing reminder/due picker, autosave, attachment preview, project header, expansion options and persistence smoke assertions remain green"
+    "electronUiSmoke": "isolated UI verifies 116px custom depth picker with six options/default all; custom theme two-color draft save/apply/copy without clone error; global coast -> project forest -> reset returns coast; all existing gates pass",
+    "transactionBoundary": "project folder rename rolls back on config failure; task subtree uses transaction staging and source backups; workspace-level attachment paths remain stable",
+    "manualBoundary": "native sendInput enters Chromium blocking drag loop and is not used as CI evidence; final human mouse drag QA remains outstanding",
+    "windowsInstaller": "electron-builder NSIS x64 package built; current-user install exit 0; desktop shortcut target and version verified; installed application launched and rendered the real production UI",
+    "applicationIcon": "original bear-and-check icon visually inspected; transparent PNG and multi-size Windows ICO generated"
   },
-  "timestamp": "2026-08-08T16:12:00+08:00",
-  "nextSteps": ["实现独立评论 Markdown 仓储、回复树和任务详情评论 UI", "实现 Git 状态/提交队列、隔离 fetch-merge-push 与冲突处理", "增加项目 Git 提供方探测和真实临时仓库集成测试"]
+  "timestamp": "2026-08-09T08:48:00+08:00",
+  "nextSteps": ["继续补足主题草稿离开设置时的未保存确认", "完成人工 Windows 鼠标拖拽、滚动和视觉验收", "补键盘任务移动菜单与自动滚动/hover展开", "实现独立评论 Markdown 仓储和 Git 同步边界"]
 }

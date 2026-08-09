@@ -1,8 +1,8 @@
 # 工作目录与数据格式 v2
 
-## 本机设置与主题资源
+## 工作区设置与主题资源
 
-任务业务数据仍只以工作目录中的 Markdown 为权威。`settings.json` 是本机设置仓储，新增 `todayWindowDays`（0–30，默认 3）、`theme` 和 `customThemes[]`。每个自定义主题包含稳定 ID、名称、完整视觉 token、可选的 `bearai-theme://` 受管背景引用以及 `createdAt/updatedAt`；背景实体复制到 Electron userData 的 `theme-assets/`，不会保存临时路径、blob URL 或 base64。旧单一 `customTheme` 在读取时迁移成 `custom-migrated` 命名主题。
+任务业务数据仍只以工作目录中的 Markdown 为权威。每个工作区的 `.bearai-settings.json` 保存 `todayWindowDays`（0–30，默认 3）、`theme` 和 `customThemes[]`。每个自定义主题包含稳定 ID、名称、完整视觉 token、可选的 `bearai-theme://` 受管背景引用以及 `createdAt/updatedAt`；背景实体复制到当前工作区的 `.theme-assets/`，不会保存临时路径、blob URL 或 base64。旧单一 `customTheme` 在读取时迁移成 `custom-migrated` 命名主题。
 
 `myDay` 旧 frontmatter 字段继续原样保留以兼容外部 Markdown，但新的“今日待办”查询不读取该字段，也不会把手动加入语义静默混入截止窗口。
 
@@ -70,6 +70,13 @@ completedAt: null
 
 项目归属以文件所在目录为最终依据；`projectId` 用于冲突检测和外部移动后的重建校验。子任务也是独立 Markdown，通过 `parentId` 指向父任务。旧 task@1 的 `listId`、`important`、`myDay` 和 `steps` 只用于迁移：`important` 映射为 `favorite`，旧 steps 转为独立子任务文件，未知字段和正文必须保留。
 
+### 排序与移动
+
+- 项目 `order` 只在同一个 `parentId` 下比较。拖拽只重排同父项目；跨父级只允许对子项目执行明确确认的“移动到”，顶级项目由仓储层拒绝移动。
+- task@2 可包含 `order`，只在同一 `projectId + parentId` 层级内比较。旧任务没有 `order` 时以创建时间稳定回退，首次人工排序或重挂后写入明确序号。
+- 任务拖到卡片上/下区域表示同层前插/后插，中央表示成为直接子任务；根层 drop zone 将任务放回根任务末尾。搜索或过滤结果中不允许重排，防止破坏隐藏任务顺序。
+- 跨项目移动时，根任务和所有后代 Markdown 经事务暂存后整体迁移，失败恢复源路径。附件位于工作区级 `.attachments/<taskId>`，稳定 ID 不变，因此引用无需复制或改写。
+
 `kind` 为 `simple` 或 `advanced`，缺省按 `simple` 兼容。两种类型的备注都仍是 Markdown 正文：简单任务显示普通文本框，高级任务显示 Markdown 工具栏、源码和预览，不引入另一份富文本数据。`due`、`reminder` 使用带时区含义的 ISO 8601 时间；`repeat` v1 使用 `{ frequency: daily|weekly|monthly|yearly, interval: 1 }`。应用启动和任务保存时会为未来 24.8 天内的 reminder 安排 Windows 本地通知，完成任务会取消其调度。
 
 `assigneeIds` 保存稳定身份 ID；首期只有本机身份 `local-self`。评论单独位于 `.comments/<taskId>/<commentId>.md`，frontmatter 包含 `id/taskId/parentCommentId/authorId/revision/createdAt/updatedAt`，正文是评论内容。回复只通过 `parentCommentId` 建树，不递归嵌套写入同一文件。
@@ -92,3 +99,14 @@ completedAt: null
 - 收藏：`favorite: true` 的未完成顶层任务。
 - 计划内：具有截止日期的未完成顶层任务。
 - 已完成：全部已完成顶层任务，可恢复。
+# 多工作区与设置边界
+
+应用运行目录（Electron `userData`）只维护 `workspaces.json`：本机用户身份、已注册工作区的稳定 ID/名称/绝对路径、当前工作区 ID 和最近打开时间。这里禁止保存任务、项目、附件、主题或项目行为偏好。
+
+每个工作区根目录独立包含：
+
+- `.bearai-workspace.json`：工作区稳定 UUID、名称、revision、统计信息；
+- `.bearai-settings.json`：该工作区的主题、侧栏宽度、今日待办窗口、项目默认行为等界面偏好；
+- 项目文件夹、任务 Markdown、附件和主题资源。
+
+切换工作区只切换仓储根目录，不复制或迁移业务数据。“移除工作区”只删除全局注册记录，不删除工作区目录；“修改工作目录并迁移”才会在完整复制与校验后删除旧目录。旧版 `userData/settings.json` 仅作为一次性迁移输入，应用不再向其写入。

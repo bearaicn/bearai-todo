@@ -15,3 +15,5 @@ export interface Project {
   parentId:string|null;order:number;archived:boolean;createdAt:string;updatedAt:string
   relativePath:string;icon:string;description:string;sidebarColor:string;theme:ProjectTheme;collapsed:boolean;viewSettings?:Partial<ProjectViewSettings>;settingsMode?:'inherit'|'own';git?:ProjectGitBinding|null
 }
+export interface ProjectReorderDto {projectId:string;parentId:string|null;beforeId?:string|null;afterId?:string|null;expectedRevision:number}
+export interface ProjectMoveDto {projectId:string;targetParentId:string;expectedRevision:number}

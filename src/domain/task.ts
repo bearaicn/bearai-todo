@@ -8,6 +8,7 @@ export interface Task {
   schema: 'bearai.todo/task@1'|'bearai.todo/task@2'; id: string; revision: number; title: string
   projectId:string; listId?: string; status: TaskStatus; favorite:boolean; important?: boolean; myDay?: string | null
   parentId?: string | null
+  order?: number
   kind?:TaskKind; due?: string | null; reminder?: string | null; repeat?: RepeatRule | null; assigneeIds?:string[]
   tags: string[]; attachments: TaskAttachment[]
   createdAt: string; updatedAt: string; completedAt?: string | null
@@ -18,3 +19,4 @@ export class RevisionConflictError extends Error {
     super(`任务已被外部修改（期望 revision ${expected}，实际 ${actual}）`)
   }
 }
+export interface TaskPlacementDto {taskId:string;sourceProjectId:string;targetProjectId:string;targetParentId:string|null;beforeId?:string|null;afterId?:string|null;expectedRevision:number}

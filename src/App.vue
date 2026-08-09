@@ -7,8 +7,9 @@ import type {
   ProjectViewSettings,
 } from "./domain/project";
 import { withoutLegacyExpansionSettings } from "./domain/project";
-import { childTasks, dueState, queryTasks } from "./domain/taskQueries";
+import { childTasks, completedProjectTasks as queryCompletedProjectTasks, dueState, partitionChildTasks, queryTasks } from "./domain/taskQueries";
 import { builtInThemes, resolveThemeId, themeTokens, type CustomTheme } from "./domain/theme";
+import type { WorkspaceRegistry } from "./infrastructure/workspaceRegistryRepository";
 import AppIcon from "./components/AppIcon.vue";
 import MarkdownEditor from "./components/MarkdownEditor.vue";
 import SchedulePicker from "./components/SchedulePicker.vue";
@@ -38,7 +39,8 @@ const contextMenu = ref<{ project: Project; x: number; y: number } | null>(
     null,
   ),
   headerMenu = ref(false),
-  accountMenu = ref(false);
+  accountMenu = ref(false),
+  workspaceMenu = ref(false);
 const inputDialog = ref<Dialog | null>(null),
   propertiesProject = ref<Project | null>(null),
   moveProject = ref<Project | null>(null);
@@ -59,8 +61,28 @@ type UiSettings = {
 const settingsOpen = ref(false),
   settings = ref<UiSettings | null>(null),
   migrating = ref(false);
+const workspaceRegistry = ref<WorkspaceRegistry | null>(null),
+  workspaceManagerOpen = ref(false),
+  workspaceName = ref("新工作区"),
+  workspaceBusy = ref(false);
+const activeWorkspace = computed(() =>
+  workspaceRegistry.value?.workspaces.find(
+    (item) => item.workspaceId === workspaceRegistry.value?.activeWorkspaceId,
+  ),
+);
+const globalThemeName = computed(() => {
+  const id = settings.value?.theme;
+  return (
+    themes.find((item) => item.id === id)?.name ??
+    customThemeDrafts.value.find((item) => item.id === id)?.name ??
+    "自定义主题"
+  );
+});
 const customThemeComposerOpen = ref(false),
-  newCustomThemeName = ref("");
+  newCustomThemeName = ref(""),
+  customThemeDrafts = ref<CustomTheme[]>([]),
+  customThemeNotice = ref(""),
+  depthMenuOpen = ref(false);
 const transientSettingsPreview = ref<string | null>(null);
 const settingsSection = ref<"general" | "appearance" | "projects" | "archive">(
     "general",
@@ -80,9 +102,13 @@ const attachmentPreview = ref<{
 } | null>(null);
 const conflict = ref<{ local: Task; disk: Task } | null>(null);
 const expandedTasks = ref(new Set<string>()),
+  completedSectionExpanded = ref(false),
+  expandedCompletedChildGroups = ref(new Set<string>()),
   editingProjectId = ref<string>(),
   editingProjectName = ref(""),
   sortMode = ref<"manual" | "title" | "updated">("manual");
+const draggedProjectId=ref<string|null>(null),projectDropId=ref<string|null>(null),projectDropAllowed=ref(false),draggedTaskId=ref<string|null>(null),taskDrop=ref<{taskId:string;mode:'before'|'child'|'after'}|null>(null);
+const moveTarget=ref<Project|null>(null),pendingTaskMove=ref<{task:Task;target:Project}|null>(null);
 const smart = [
   { id: "today", icon: "sun", name: "今日待办" },
   { id: "favorites", icon: "star", name: "收藏" },
@@ -123,7 +149,7 @@ const effectiveView = computed<ProjectViewSettings>(() => {
   const fallback = settings.value?.projectDefaults ?? {
     sortMode: "manual",
     theme: settings.value?.theme ?? "mist",
-    defaultTaskExpansion: { mode: "collapsed" as const, depth: 1 as const },
+    defaultTaskExpansion: { mode: "collapsed" as const, depth: "all" as const },
     rememberTaskExpansion: false,
     showSubprojects: false,
     expandedTaskIds: [],
@@ -133,6 +159,7 @@ const effectiveView = computed<ProjectViewSettings>(() => {
   const legacy = owner?.viewSettings;
   return {
     ...fallback,
+    theme: settings.value?.theme ?? fallback.theme,
     ...withoutLegacyExpansionSettings(legacy ?? {}),
     defaultTaskExpansion: legacy?.defaultTaskExpansion ?? { mode: legacy?.expandMode === "expanded" ? "depth" : fallback.defaultTaskExpansion.mode, depth: legacy?.expandMode === "expanded" ? "all" : fallback.defaultTaskExpansion.depth },
     rememberTaskExpansion: legacy?.rememberTaskExpansion ?? (legacy?.expandMode === "remember"),
@@ -229,18 +256,40 @@ const shown = computed(() => {
     result = [...result].sort((a, b) => a.title.localeCompare(b.title));
   if (mode === "updated")
     result = [...result].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  if (mode === "manual" && currentProject.value)
+    result = [...result].sort((a,b)=>(a.order??Number.MAX_SAFE_INTEGER)-(b.order??Number.MAX_SAFE_INTEGER)||a.createdAt.localeCompare(b.createdAt));
   return result;
 });
 const visibleTaskRows = computed(() => {
-  const rows: { task: Task; depth: number; hasChildren: boolean }[] = [];
+  type Row =
+    | { kind: "task"; task: Task; depth: number; hasChildren: boolean }
+    | { kind: "completed-group"; parentId: string; depth: number; tasks: Task[] };
+  const rows: Row[] = [];
   const visit = (task: Task, depth: number) => {
-    const children = childTasks(tasks.value, task.id);
-    rows.push({ task, depth, hasChildren: children.length > 0 });
-    if (expandedTasks.value.has(task.id))
-      children.forEach((child) => visit(child, depth + 1));
+    const children = childTasks(tasks.value, task.id),
+      { active: activeChildren, completed: completedChildren } = partitionChildTasks(tasks.value, task.id);
+    rows.push({ kind: "task", task, depth, hasChildren: children.length > 0 });
+    if (expandedTasks.value.has(task.id)) {
+      activeChildren.forEach((child) => visit(child, depth + 1));
+      if (completedChildren.length)
+        rows.push({
+          kind: "completed-group",
+          parentId: task.id,
+          depth: depth + 1,
+          tasks: completedChildren,
+        });
+    }
   };
   shown.value.forEach((task) => visit(task, 0));
   return rows;
+});
+const completedProjectTasks = computed(() => {
+  if (!currentProject.value || view.value === "completed") return [];
+  return queryCompletedProjectTasks(
+    tasks.value,
+    currentProject.value.projectId,
+    listSearch.value || search.value,
+  );
 });
 const children = computed(() =>
   selected.value ? childTasks(tasks.value, selected.value.id) : [],
@@ -248,7 +297,7 @@ const children = computed(() =>
 const renderedThemeId=computed(()=>resolveThemeId(settingsOpen.value,transientSettingsPreview.value,currentProject.value?effectiveView.value.theme:null,settings.value?.theme??'mist'))
 const themeClass = computed(() => Object.hasOwn(builtInThemes,renderedThemeId.value)?`theme-${renderedThemeId.value}`:'theme-custom');
 const shellStyle = computed(() => {
-  const tokens=themeTokens(renderedThemeId.value,settings.value?.customThemes),custom=settings.value?.customThemes.find(item=>item.id===renderedThemeId.value),image=custom?.backgroundImage;
+  const availableThemes=settingsOpen.value?customThemeDrafts.value:(settings.value?.customThemes??[]),tokens=themeTokens(renderedThemeId.value,availableThemes),custom=availableThemes.find(item=>item.id===renderedThemeId.value),image=custom?.backgroundImage;
   return {
     "--sidebar-width": `${settings.value?.sidebarWidth ?? 262}px`,
     "--accent":tokens.accent,"--accent-soft":tokens.hover,"--accent-alt":tokens.accentAlt,"--scene":tokens.scene,"--scene-layer":tokens.sceneLayer,"--panel":tokens.panel,"--card":tokens.card,"--text":tokens.text,"--muted":tokens.muted,"--border":tokens.border,"--danger":tokens.danger,"--shadow-color":tokens.shadow,
@@ -264,21 +313,84 @@ function closeMenus() {
   blankMenu.value = null;
   headerMenu.value = false;
   accountMenu.value = false;
+  workspaceMenu.value = false;
 }
 async function load() {
   try {
     const api = bridge();
     await api.health();
-    [tasks.value, projects.value, settings.value] = await Promise.all([
+    [tasks.value, projects.value, settings.value, workspaceRegistry.value] = await Promise.all([
       api.listTasks(),
       api.listProjects(),
       api.getSettings(),
+      api.listWorkspaces(),
     ]);
     if (settings.value && !settings.value.currentUser) settings.value.currentUser={id:'local-self',name:'本地用户',email:''};
     error.value = "";
   } catch (reason) {
     error.value = message(reason);
   }
+}
+async function switchWorkspace(workspaceId: string) {
+  if (workspaceId === workspaceRegistry.value?.activeWorkspaceId) {
+    workspaceMenu.value = false;
+    return;
+  }
+  workspaceBusy.value = true;
+  try {
+    await flushSave(selected.value);
+    workspaceRegistry.value = await bridge().switchWorkspace(workspaceId);
+    selected.value = undefined;
+    view.value = "today";
+    search.value = "";
+    listSearch.value = "";
+    await load();
+    workspaceMenu.value = false;
+  } catch (reason) {
+    error.value = message(reason);
+  } finally {
+    workspaceBusy.value = false;
+  }
+}
+async function createWorkspace() {
+  if (!workspaceName.value.trim()) return;
+  workspaceBusy.value = true;
+  try {
+    await flushSave(selected.value);
+    const result = await bridge().createWorkspace(workspaceName.value);
+    if (!result.canceled) {
+      workspaceName.value = "新工作区";
+      selected.value = undefined;
+      view.value = "today";
+      await load();
+    }
+  } catch (reason) { error.value = message(reason); }
+  finally { workspaceBusy.value = false; }
+}
+async function addWorkspace() {
+  workspaceBusy.value = true;
+  try {
+    await flushSave(selected.value);
+    const result = await bridge().addWorkspace();
+    if (!result.canceled) { selected.value = undefined; view.value = "today"; await load(); }
+  } catch (reason) { error.value = message(reason); }
+  finally { workspaceBusy.value = false; }
+}
+async function renameWorkspace(workspaceId: string, currentName: string) {
+  const name = window.prompt("工作区名称", currentName)?.trim();
+  if (!name || name === currentName) return;
+  try { workspaceRegistry.value = await bridge().renameWorkspace(workspaceId, name); }
+  catch (reason) { error.value = message(reason); }
+}
+async function removeWorkspace(workspaceId: string, name: string) {
+  if (!window.confirm(`从软件中移除工作区“${name}”？\n\n只移除注册记录，不会删除工作区目录和其中的数据。`)) return;
+  try {
+    await flushSave(selected.value);
+    workspaceRegistry.value = await bridge().removeWorkspace(workspaceId);
+    selected.value = undefined;
+    view.value = "today";
+    await load();
+  } catch (reason) { error.value = message(reason); }
 }
 function defaultProject() {
   return (
@@ -603,21 +715,33 @@ async function saveProperties() {
     error.value = message(reason);
   }
 }
+const projectMoveCandidates=computed(()=>{const source=moveProject.value;if(!source)return[];const descendants=new Set<string>(),visit=(id:string)=>projects.value.filter(item=>item.parentId===id).forEach(item=>{descendants.add(item.projectId);visit(item.projectId)});visit(source.projectId);return projects.value.filter(item=>item.projectId!==source.projectId&&item.projectId!==source.parentId&&!descendants.has(item.projectId)&&!item.archived)});
 async function moveTo(parentId: string | null) {
   const project = moveProject.value;
-  if (!project) return;
+  if (!project||!parentId) return;
   try {
-    const next = await bridge().moveProject(project.projectId, parentId);
+    const next = await bridge().moveProjectChecked({projectId:project.projectId,targetParentId:parentId,expectedRevision:project.revision});
     Object.assign(project, next);
     moveProject.value = null;
+    moveTarget.value = null;
   } catch (reason) {
     error.value = message(reason);
   }
 }
+function startProjectDrag(event:DragEvent,project:Project){draggedProjectId.value=project.projectId;event.dataTransfer?.setData('application/x-bearai-project',project.projectId);if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
+function overProject(event:DragEvent,target:Project){if(draggedTaskId.value){const task=tasks.value.find(item=>item.id===draggedTaskId.value);projectDropId.value=target.projectId;projectDropAllowed.value=Boolean(task&&task.projectId!==target.projectId&&!target.archived);if(projectDropAllowed.value){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}return}const source=projects.value.find(item=>item.projectId===draggedProjectId.value);projectDropId.value=target.projectId;projectDropAllowed.value=Boolean(source&&source.projectId!==target.projectId&&source.parentId===target.parentId);if(projectDropAllowed.value){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move'}else if(event.dataTransfer)event.dataTransfer.dropEffect='none'}
+async function dropOnProject(event:DragEvent,target:Project){event.preventDefault();if(draggedTaskId.value&&projectDropAllowed.value){const task=tasks.value.find(item=>item.id===draggedTaskId.value);if(task)pendingTaskMove.value={task,target}}else if(draggedProjectId.value&&projectDropAllowed.value){const source=projects.value.find(item=>item.projectId===draggedProjectId.value);if(source)try{await bridge().reorderProject({projectId:source.projectId,parentId:source.parentId,beforeId:target.projectId,expectedRevision:source.revision});projects.value=await bridge().listProjects()}catch(reason){error.value=message(reason)}}clearDrag()}
+function clearDrag(){draggedProjectId.value=null;draggedTaskId.value=null;projectDropId.value=null;projectDropAllowed.value=false;taskDrop.value=null}
+function startTaskDrag(event:DragEvent,task:Task){draggedTaskId.value=task.id;event.dataTransfer?.setData('application/x-bearai-task',task.id);if(event.dataTransfer)event.dataTransfer.effectAllowed='move'}
+function overTask(event:DragEvent,target:Task){if(!draggedTaskId.value||draggedTaskId.value===target.id||!currentProject.value||search.value||listSearch.value||effectiveView.value.sortMode!=='manual')return;event.preventDefault();const rect=(event.currentTarget as HTMLElement).getBoundingClientRect(),ratio=(event.clientY-rect.top)/rect.height;taskDrop.value={taskId:target.id,mode:ratio<.3?'before':ratio>.7?'after':'child'};if(event.dataTransfer)event.dataTransfer.dropEffect='move'}
+async function dropOnTask(event:DragEvent,target:Task){event.preventDefault();const source=tasks.value.find(item=>item.id===draggedTaskId.value),drop=taskDrop.value;if(!source||!drop||drop.taskId!==target.id)return clearDrag();try{await flushSave(selected.value);await bridge().placeTask({taskId:source.id,sourceProjectId:source.projectId,targetProjectId:target.projectId,targetParentId:drop.mode==='child'?target.id:(target.parentId??null),beforeId:drop.mode==='before'?target.id:null,afterId:drop.mode==='after'?target.id:null,expectedRevision:source.revision});tasks.value=await bridge().listTasks()}catch(reason){error.value=message(reason)}finally{clearDrag()}}
+async function dropTaskAtRoot(event:DragEvent){event.preventDefault();const source=tasks.value.find(item=>item.id===draggedTaskId.value),project=currentProject.value;if(!source||!project)return clearDrag();try{await bridge().placeTask({taskId:source.id,sourceProjectId:source.projectId,targetProjectId:project.projectId,targetParentId:null,afterId:shown.value.at(-1)?.id??null,expectedRevision:source.revision});tasks.value=await bridge().listTasks()}catch(reason){error.value=message(reason)}finally{clearDrag()}}
+async function confirmTaskProjectMove(){const pending=pendingTaskMove.value;if(!pending)return;try{await flushSave(selected.value);await bridge().placeTask({taskId:pending.task.id,sourceProjectId:pending.task.projectId,targetProjectId:pending.target.projectId,targetParentId:null,expectedRevision:pending.task.revision});tasks.value=await bridge().listTasks();if(selected.value?.id===pending.task.id)selected.value=tasks.value.find(item=>item.id===pending.task.id)}catch(reason){error.value=message(reason)}finally{pendingTaskMove.value=null}}
 async function openSettings() {
   closeMenus();
   try {
     settings.value = await bridge().getSettings();
+    customThemeDrafts.value = plainThemes(settings.value.customThemes);
     transientSettingsPreview.value = settings.value.theme;
     settingsOpen.value = true;
   } catch (reason) {
@@ -630,6 +754,7 @@ async function openArchive() {
     archived.value = await bridge().listArchivedProjects();
     settingsSection.value = "archive";
     settings.value = await bridge().getSettings();
+    customThemeDrafts.value = plainThemes(settings.value.customThemes);
     transientSettingsPreview.value = settings.value.theme;
     settingsOpen.value = true;
   } catch (reason) {
@@ -645,12 +770,15 @@ async function setGlobalTheme(theme: ProjectTheme) {
   }
 }
 function closeSettings(){settingsOpen.value=false;transientSettingsPreview.value=null}
-function createCustomTheme(copy?:CustomTheme){if(copy){void persistCustomTheme(`${copy.name} 副本`,copy);return}newCustomThemeName.value='我的主题';customThemeComposerOpen.value=true}
-async function persistCustomTheme(name:string,copy?:CustomTheme){if(!settings.value)return;const normalizedName=name.trim();if(!normalizedName){error.value='请输入主题名称';return}const now=new Date().toISOString(),id=`theme-${crypto.randomUUID()}`,theme:CustomTheme={id,name:normalizedName,tokens:{...(copy?.tokens??builtInThemes.mist.tokens)},backgroundImage:copy?.backgroundImage??null,createdAt:now,updatedAt:now};await savePreferences({customThemes:[...settings.value.customThemes,theme],theme:id});transientSettingsPreview.value=id;customThemeComposerOpen.value=false;newCustomThemeName.value=''}
+function plainThemes(themes:CustomTheme[]){return JSON.parse(JSON.stringify(themes)) as CustomTheme[]}
+function createCustomTheme(){newCustomThemeName.value='我的主题';customThemeComposerOpen.value=true}
+async function persistCustomTheme(name:string,copy?:CustomTheme){const normalizedName=name.trim();if(!normalizedName){error.value='请输入主题名称';return}const now=new Date().toISOString(),id=`theme-${crypto.randomUUID()}`,theme:CustomTheme={id,name:normalizedName,tokens:{...(copy?.tokens??builtInThemes.mist.tokens)},backgroundImage:copy?.backgroundImage??null,createdAt:now,updatedAt:now};customThemeDrafts.value=[...customThemeDrafts.value,theme];transientSettingsPreview.value=id;customThemeNotice.value=`已创建“${normalizedName}”草稿，请调整后保存。`;customThemeComposerOpen.value=false;newCustomThemeName.value=''}
 async function confirmCreateCustomTheme(){await persistCustomTheme(newCustomThemeName.value)}
 function cancelCreateCustomTheme(){customThemeComposerOpen.value=false;newCustomThemeName.value=''}
-async function updateCustomTheme(theme:CustomTheme){if(!settings.value)return;theme.updatedAt=new Date().toISOString();await savePreferences({customThemes:[...settings.value.customThemes]});transientSettingsPreview.value=theme.id}
-async function deleteCustomTheme(theme:CustomTheme){if(!settings.value||!window.confirm(`删除自定义主题“${theme.name}”？所有使用位置将明确回退到晨雾。`))return;for(const project of projects.value.filter(item=>item.viewSettings?.theme===theme.id)){Object.assign(project,await bridge().updateProject(project.projectId,{viewSettings:{...project.viewSettings,theme:'mist'}}))}const customThemes=settings.value.customThemes.filter(item=>item.id!==theme.id),fallback=settings.value.theme===theme.id?'mist':settings.value.theme,projectDefaults=settings.value.projectDefaults.theme===theme.id?{...settings.value.projectDefaults,theme:'mist'}:settings.value.projectDefaults;await savePreferences({customThemes,theme:fallback,projectDefaults});transientSettingsPreview.value=fallback}
+async function saveCustomTheme(theme:CustomTheme){if(!settings.value)return;const saved={...JSON.parse(JSON.stringify(theme)),updatedAt:new Date().toISOString()} as CustomTheme,existing=settings.value.customThemes.some(item=>item.id===saved.id),customThemes=existing?settings.value.customThemes.map(item=>item.id===saved.id?saved:item):[...settings.value.customThemes,saved];await savePreferences({customThemes:plainThemes(customThemes)});customThemeDrafts.value=plainThemes(settings.value?.customThemes??customThemes);transientSettingsPreview.value=saved.id;customThemeNotice.value=`主题“${saved.name}”已保存。`}
+async function applyCustomTheme(theme:CustomTheme){await saveCustomTheme(theme);await setGlobalTheme(theme.id);customThemeNotice.value=`主题“${theme.name}”已保存并应用。`}
+async function copyCustomTheme(theme:CustomTheme){await persistCustomTheme(`${theme.name} 副本`,JSON.parse(JSON.stringify(theme)));customThemeNotice.value=`已创建“${theme.name} 副本”，可继续调整后保存。`}
+async function deleteCustomTheme(theme:CustomTheme){if(!settings.value)return;const persisted=settings.value.customThemes.some(item=>item.id===theme.id);if(persisted&&!window.confirm(`删除自定义主题“${theme.name}”？使用该主题的位置将回退到当前全局主题。`))return;for(const project of projects.value.filter(item=>item.viewSettings?.theme===theme.id)){Object.assign(project,await bridge().updateProject(project.projectId,{settingsMode:'inherit',viewSettings:{}}))}const customThemes=settings.value.customThemes.filter(item=>item.id!==theme.id),fallback=settings.value.theme===theme.id?'mist':settings.value.theme;await savePreferences({customThemes:plainThemes(customThemes),theme:fallback});customThemeDrafts.value=plainThemes(customThemes);transientSettingsPreview.value=fallback;customThemeNotice.value=`主题“${theme.name}”已删除。`}
 async function savePreferences(
   patch: Partial<
     Pick<
@@ -665,7 +793,7 @@ async function savePreferences(
     error.value = message(reason);
   }
 }
-async function setProjectView(patch: Partial<ProjectViewSettings>) {
+async function setProjectView(patch: Partial<ProjectViewSettings>, close = true) {
   const project = currentProject.value;
   if (!project) return;
   try {
@@ -684,11 +812,22 @@ async function setProjectView(patch: Partial<ProjectViewSettings>) {
         viewSettings,
       }),
     );
-    headerMenu.value = false;
+    if (close) headerMenu.value = false;
   } catch (reason) {
     error.value = message(reason);
   }
 }
+const expansionDepthOptions = [
+  { value: 1 as const, label: "第一层" },
+  { value: 2 as const, label: "第二层" },
+  { value: 3 as const, label: "第三层" },
+  { value: 4 as const, label: "第四层" },
+  { value: 5 as const, label: "第五层" },
+  { value: "all" as const, label: "全部" },
+];
+function expansionDepthLabel(value: ProjectViewSettings["defaultTaskExpansion"]["depth"]){return expansionDepthOptions.find(item=>item.value===value)?.label??"全部"}
+async function openExpansionDepthMenu(){depthMenuOpen.value=!depthMenuOpen.value;if(effectiveView.value.defaultTaskExpansion.mode!=="depth")await setProjectView({defaultTaskExpansion:{mode:"depth",depth:effectiveView.value.defaultTaskExpansion.depth}},false)}
+async function chooseExpansionDepth(depth:ProjectViewSettings["defaultTaskExpansion"]["depth"]){depthMenuOpen.value=false;await setProjectView({defaultTaskExpansion:{mode:"depth",depth}})}
 async function resetProjectView() {
   const project = currentProject.value;
   if (!project) return;
@@ -708,7 +847,7 @@ async function resetProjectView() {
 async function chooseBackground(theme:CustomTheme) {
   try {
     const path = await bridge().chooseThemeBackground(theme.id);
-    if (path && settings.value){theme.backgroundImage=path;await updateCustomTheme(theme)}
+    if (path){theme.backgroundImage=path;transientSettingsPreview.value=theme.id;customThemeNotice.value='背景已选择，请点击保存。'}
   } catch (reason) {
     error.value = message(reason);
   }
@@ -796,7 +935,8 @@ watch(
   },
   { immediate: true },
 );
-watch(view,async()=>{if(selected.value){await flushSave(selected.value);selected.value=undefined}});
+watch(view,async()=>{completedSectionExpanded.value=false;if(selected.value){await flushSave(selected.value);selected.value=undefined}});
+watch(headerMenu,(open)=>{if(!open)depthMenuOpen.value=false});
 onMounted(load);
 </script>
 
@@ -854,12 +994,18 @@ onMounted(load);
           v-for="row in projectRows"
           :key="row.project.projectId"
           class="list-row"
-          :class="{ selected: view === row.project.projectId }"
+          :class="{ selected: view === row.project.projectId, 'drop-allowed':projectDropId===row.project.projectId&&projectDropAllowed, 'drop-forbidden':projectDropId===row.project.projectId&&!projectDropAllowed }"
           :style="{
             '--depth': row.depth,
             '--row-color': row.project.sidebarColor,
           }"
           @contextmenu.stop="openContext($event, row.project)"
+          draggable="true"
+          @dragstart="startProjectDrag($event,row.project)"
+          @dragover="overProject($event,row.project)"
+          @dragleave="projectDropId===row.project.projectId&&(projectDropId=null)"
+          @drop="dropOnProject($event,row.project)"
+          @dragend="clearDrag"
         >
           <button
             class="tree-toggle"
@@ -906,6 +1052,35 @@ onMounted(load);
           aria-label="新项目名称"
         /><button aria-label="创建项目"><AppIcon name="plus" /></button>
       </form>
+      <div class="workspace-wrap">
+        <button
+          class="workspace-block"
+          :aria-expanded="workspaceMenu"
+          aria-haspopup="menu"
+          @click.stop="workspaceMenu = !workspaceMenu"
+        >
+          <AppIcon name="folder" :size="17" />
+          <span>{{ activeWorkspace?.name ?? "工作区" }}</span>
+          <AppIcon name="chevron-up" :size="15" />
+        </button>
+        <div v-if="workspaceMenu" class="workspace-menu floating-menu" role="menu" @click.stop>
+          <button
+            v-for="workspace in workspaceRegistry?.workspaces"
+            :key="workspace.workspaceId"
+            role="menuitemradio"
+            :aria-checked="workspace.workspaceId === workspaceRegistry?.activeWorkspaceId"
+            :disabled="workspaceBusy"
+            @click="switchWorkspace(workspace.workspaceId)"
+          >
+            <span class="menu-check"><AppIcon v-if="workspace.workspaceId === workspaceRegistry?.activeWorkspaceId" name="check" :size="16" /></span>
+            <span>{{ workspace.name }}</span>
+          </button>
+          <hr />
+          <button role="menuitem" @click="workspaceManagerOpen = true; workspaceMenu = false">
+            <AppIcon name="settings" :size="17" /><span>管理工作区…</span>
+          </button>
+        </div>
+      </div>
       <div class="account-wrap">
         <button class="account-block" @click.stop="accountMenu = !accountMenu">
           <span class="avatar">熊</span
@@ -998,7 +1173,7 @@ onMounted(load);
           </div>
           <button @click="openDialog('renameProject', currentProject)">
             <AppIcon name="edit" /><span>重命名项目</span></button
-          ><button
+          ><button v-if="currentProject.parentId"
             @click="
               moveProject = currentProject;
               headerMenu = false;
@@ -1041,7 +1216,7 @@ onMounted(load);
                 name="check"
                 :size="15" /></span
             ><span>默认不展开</span></button
-          ><div class="menu-depth expansion-depth-option"><button @click="setProjectView({defaultTaskExpansion:{...effectiveView.defaultTaskExpansion,mode:'depth'}})"><span class="menu-check"><AppIcon v-if="effectiveView.defaultTaskExpansion.mode==='depth'" name="check" :size="15"/></span><span>默认展开到</span></button><select aria-label="默认展开层级" :disabled="effectiveView.defaultTaskExpansion.mode!=='depth'" :value="effectiveView.defaultTaskExpansion.depth" @change="setProjectView({defaultTaskExpansion:{mode:'depth',depth:(($event.target as HTMLSelectElement).value==='all'?'all':Number(($event.target as HTMLSelectElement).value)) as any}})"><option value="1">第一层</option><option value="2">第二层</option><option value="3">第三层</option><option value="4">第四层</option><option value="5">第五层</option><option value="all">全部</option></select></div>
+          ><div class="menu-depth expansion-depth-option"><button @click="setProjectView({defaultTaskExpansion:{...effectiveView.defaultTaskExpansion,mode:'depth'}},false)"><span class="menu-check"><AppIcon v-if="effectiveView.defaultTaskExpansion.mode==='depth'" name="check" :size="15"/></span><span>默认展开到</span></button><div class="depth-picker"><button class="depth-picker-trigger" aria-label="默认展开层级" :aria-expanded="depthMenuOpen" @click.stop="openExpansionDepthMenu"><span>{{expansionDepthLabel(effectiveView.defaultTaskExpansion.depth)}}</span><AppIcon name="chevron-down" :size="14"/></button><div v-if="depthMenuOpen" class="depth-picker-menu" role="listbox"><button v-for="option in expansionDepthOptions" :key="String(option.value)" role="option" :aria-selected="effectiveView.defaultTaskExpansion.depth===option.value" @click.stop="chooseExpansionDepth(option.value)"><AppIcon v-if="effectiveView.defaultTaskExpansion.depth===option.value" name="check" :size="14"/><span v-else class="menu-check"></span>{{option.label}}</button></div></div></div>
           <button @click="setProjectView({rememberTaskExpansion:!effectiveView.rememberTaskExpansion})"><span class="menu-check"><AppIcon v-if="effectiveView.rememberTaskExpansion" name="check" :size="15"/></span><span>记住上次展开情况</span></button>
           <div class="menu-label project-expand-label">项目展开</div>
           <button
@@ -1105,15 +1280,26 @@ onMounted(load);
           <AppIcon name="folder" /><span>{{ project.name }}</span
           ><small>双击进入</small>
         </button>
-        <article
+        <template
           v-for="row in visibleTaskRows"
-          :key="row.task.id"
+          :key="row.kind === 'task' ? row.task.id : `completed-${row.parentId}`"
+        >
+        <article
+          v-if="row.kind === 'task'"
           :style="{ '--task-depth': row.depth }"
           :class="{
             active: selected?.id === row.task.id,
             child: row.depth > 0,
+            'drop-before':taskDrop?.taskId===row.task.id&&taskDrop.mode==='before',
+            'drop-child':taskDrop?.taskId===row.task.id&&taskDrop.mode==='child',
+            'drop-after':taskDrop?.taskId===row.task.id&&taskDrop.mode==='after',
           }"
           @click="selectTask(row.task)"
+          draggable="true"
+          @dragstart="startTaskDrag($event,row.task)"
+          @dragover="overTask($event,row.task)"
+          @drop="dropOnTask($event,row.task)"
+          @dragend="clearDrag"
         >
           <button
             v-if="row.hasChildren"
@@ -1170,9 +1356,72 @@ onMounted(load);
             <AppIcon name="star" :size="19" />
           </button>
         </article>
+        <section
+          v-else
+          class="completed-section child-completed-section"
+          :style="{ '--task-depth': row.depth }"
+          :aria-label="`子任务已完成 ${row.tasks.length}`"
+        >
+          <button
+            class="completed-toggle"
+            :aria-expanded="expandedCompletedChildGroups.has(row.parentId)"
+            @click="expandedCompletedChildGroups.has(row.parentId) ? expandedCompletedChildGroups.delete(row.parentId) : expandedCompletedChildGroups.add(row.parentId); expandedCompletedChildGroups = new Set(expandedCompletedChildGroups)"
+          >
+            <AppIcon :name="expandedCompletedChildGroups.has(row.parentId) ? 'chevron-down' : 'chevron-right'" :size="16" />
+            <span>已完成</span><b>{{ row.tasks.length }}</b>
+          </button>
+          <div v-if="expandedCompletedChildGroups.has(row.parentId)" class="completed-list">
+            <article
+              v-for="task in row.tasks"
+              :key="task.id"
+              class="completed-task child"
+              :style="{ '--task-depth': row.depth }"
+              :class="{ active: selected?.id === task.id }"
+              tabindex="0"
+              @click="selectTask(task)"
+              @keydown.enter="selectTask(task)"
+            >
+              <span class="task-expand placeholder"></span>
+              <button class="circle done" aria-label="恢复子任务" @click.stop="toggleDone(task)"><AppIcon name="check" :size="14" /></button>
+              <div><strong class="strike">{{ task.title }}</strong><small>已完成子任务</small></div>
+              <button class="star" :class="{ filled: task.favorite }" :aria-label="task.favorite ? '取消收藏' : '收藏任务'" @click.stop="save(task, { favorite: !task.favorite })"><AppIcon name="star" :size="19" /></button>
+            </article>
+          </div>
+        </section>
+        </template>
+        <section v-if="currentProject && completedProjectTasks.length" class="completed-section" aria-label="已完成任务">
+          <button
+            class="completed-toggle"
+            :aria-expanded="completedSectionExpanded"
+            @click="completedSectionExpanded = !completedSectionExpanded"
+          >
+            <AppIcon :name="completedSectionExpanded ? 'chevron-down' : 'chevron-right'" :size="16" />
+            <span>已完成</span><b>{{ completedProjectTasks.length }}</b>
+          </button>
+          <div v-if="completedSectionExpanded" class="completed-list">
+            <article
+              v-for="task in completedProjectTasks"
+              :key="task.id"
+              class="completed-task"
+              :class="{ active: selected?.id === task.id }"
+              tabindex="0"
+              @click="selectTask(task)"
+              @keydown.enter="selectTask(task)"
+            >
+              <span class="task-expand placeholder"></span>
+              <button class="circle done" aria-label="恢复任务" @click.stop="toggleDone(task)">
+                <AppIcon name="check" :size="14" />
+              </button>
+              <div><strong class="strike">{{ task.title }}</strong><small>{{ task.tags.map((tag) => "#" + tag).join(" ") || "已完成任务" }}</small></div>
+              <button class="star" :class="{ filled: task.favorite }" :aria-label="task.favorite ? '取消收藏' : '收藏任务'" @click.stop="save(task, { favorite: !task.favorite })"><AppIcon name="star" :size="19" /></button>
+            </article>
+          </div>
+        </section>
+        <div v-if="currentProject && draggedTaskId" class="task-root-drop" @dragover.prevent @drop="dropTaskAtRoot">放到根任务末尾</div>
         <div
           v-if="
             !visibleTaskRows.length &&
+            !completedProjectTasks.length &&
             !(
               currentProject &&
               effectiveView.showSubprojects &&
@@ -1361,6 +1610,8 @@ onMounted(load);
         <AppIcon name="edit" /><span>重命名</span></button
       ><button @click="openProperties(contextMenu.project)">
         <AppIcon name="settings" /><span>属性</span></button
+      ><button v-if="contextMenu.project.parentId" @click="moveProject=contextMenu.project;moveTarget=null;contextMenu=null">
+        <AppIcon name="move" /><span>移动到</span></button
       ><button @click="bridge().openProjectFolder(contextMenu.project.projectId);contextMenu=null">
         <AppIcon name="folder" /><span>在资源管理器中打开</span></button
       ><button class="danger" @click="archiveProject(contextMenu.project)">
@@ -1439,25 +1690,37 @@ onMounted(load);
     <div
       v-if="moveProject"
       class="modal-backdrop"
-      @click.self="moveProject = null"
+      @click.self="moveProject = null;moveTarget=null"
     >
       <section class="modal compact">
         <h2>移动“{{ moveProject.name }}”</h2>
-        <div class="move-list">
-          <button @click="moveTo(null)">工作目录根级</button
-          ><button
-            v-for="project in projects.filter(
-              (item) => item.projectId !== moveProject?.projectId,
-            )"
+        <p v-if="moveTarget"><b>{{moveProject.name}}</b> 将从 <b>{{projects.find(item=>item.projectId===moveProject?.parentId)?.name}}</b> 移动到 <b>{{moveTarget.name}}</b>；任务、附件和全部子项目会整体保留。</p>
+        <div v-else class="move-list">
+          <button
+            v-for="project in projectMoveCandidates"
             :key="project.projectId"
-            @click="moveTo(project.projectId)"
+            @click="moveTarget=project"
           >
             {{ project.icon }} {{ project.name }}
           </button>
         </div>
         <div class="modal-actions">
-          <button @click="moveProject = null">取消</button>
+          <button @click="moveProject = null;moveTarget=null">取消</button><button v-if="moveTarget" class="primary" @click="moveTo(moveTarget.projectId)">确认移动</button>
         </div>
+      </section>
+    </div>
+    <div v-if="pendingTaskMove" class="modal-backdrop" @click.self="pendingTaskMove=null"><section class="modal compact"><h2>确认移动任务</h2><p>任务“<b>{{pendingTaskMove.task.title}}</b>”将从“{{projects.find(item=>item.projectId===pendingTaskMove?.task.projectId)?.name}}”移动到“{{pendingTaskMove.target.name}}”。<template v-if="tasks.some(item=>item.parentId===pendingTaskMove?.task.id)">其全部子任务会一起移动。</template><template v-if="pendingTaskMove.task.attachments.length">其附件引用会保持不变。</template></p><div class="modal-actions"><button @click="pendingTaskMove=null">取消</button><button class="primary" @click="confirmTaskProjectMove">确认移动</button></div></section></div>
+    <div v-if="workspaceManagerOpen && workspaceRegistry" class="modal-backdrop" @click.self="workspaceManagerOpen=false">
+      <section class="modal workspace-manager" aria-labelledby="workspace-manager-title">
+        <header><div><h2 id="workspace-manager-title">管理工作区</h2><p>每个工作区拥有独立的项目、任务、附件和外观设置。</p></div><button aria-label="关闭工作区管理" @click="workspaceManagerOpen=false"><AppIcon name="close" /></button></header>
+        <div class="workspace-manager-list">
+          <article v-for="workspace in workspaceRegistry.workspaces" :key="workspace.workspaceId" :class="{active:workspace.workspaceId===workspaceRegistry.activeWorkspaceId}">
+            <AppIcon name="folder" :size="21"/><div><b>{{workspace.name}}</b><small>{{workspace.path}}</small></div><span v-if="workspace.workspaceId===workspaceRegistry.activeWorkspaceId" class="current-badge">当前</span>
+            <div class="workspace-actions"><button v-if="workspace.workspaceId!==workspaceRegistry.activeWorkspaceId" @click="switchWorkspace(workspace.workspaceId)">切换</button><button @click="bridge().openWorkspace(workspace.workspaceId)">打开目录</button><button @click="renameWorkspace(workspace.workspaceId,workspace.name)">重命名</button><button class="danger" :disabled="workspaceRegistry.workspaces.length<=1" @click="removeWorkspace(workspace.workspaceId,workspace.name)">移除</button></div>
+          </article>
+        </div>
+        <form class="workspace-create" @submit.prevent="createWorkspace"><label>新工作区名称<input v-model="workspaceName" maxlength="80"/></label><button class="primary" :disabled="workspaceBusy">新建工作区…</button><button type="button" :disabled="workspaceBusy" @click="addWorkspace">添加现有工作区…</button></form>
+        <p class="workspace-safety">“移除”只取消软件中的注册，不会删除目录或其中任何任务数据。当前工作区如需换到新磁盘位置，请在设置中使用“修改工作目录并迁移”。</p>
       </section>
     </div>
     <div
@@ -1539,7 +1802,7 @@ onMounted(load);
                 ><button v-for="custom in settings.customThemes" :key="custom.id" :class="{selected:settings.theme===custom.id}" @click="setGlobalTheme(custom.id)"><i :style="{background:custom.tokens.accent}"></i>{{custom.name}}</button>
               </div>
             </fieldset>
-            <fieldset class="custom-theme-manager"><legend>自定义主题</legend><button type="button" class="primary" @click="createCustomTheme()">新增主题</button><form v-if="customThemeComposerOpen" class="custom-theme-composer" @submit.prevent="confirmCreateCustomTheme"><input v-model="newCustomThemeName" aria-label="新主题名称" placeholder="输入主题名称" autofocus/><button type="submit" class="primary">创建</button><button type="button" @click="cancelCreateCustomTheme">取消</button></form><article v-for="custom in settings.customThemes" :key="custom.id" class="custom-theme-card"><input v-model="custom.name" aria-label="主题名称" @change="updateCustomTheme(custom)"/><div class="token-colors"><label v-for="field in ['scene','sceneLayer','panel','card','hover','accent','accentAlt','text','muted','border','danger','shadow']" :key="field">{{field}}<input v-model="custom.tokens[field as keyof typeof custom.tokens]" type="color" @change="updateCustomTheme(custom)"/></label></div><div class="custom-theme-actions"><button @click="setGlobalTheme(custom.id)">应用</button><button @click="createCustomTheme(custom)">复制</button><button @click="chooseBackground(custom)">{{custom.backgroundImage?'替换背景':'选择背景'}}</button><button v-if="custom.backgroundImage" @click="custom.backgroundImage=null;updateCustomTheme(custom)">移除背景</button><button class="danger" @click="deleteCustomTheme(custom)">删除</button></div></article></fieldset></template
+            <fieldset class="custom-theme-manager"><legend>自定义主题</legend><button type="button" class="primary" @click="createCustomTheme()">新增主题</button><span v-if="customThemeNotice" class="theme-notice" role="status">{{customThemeNotice}}</span><form v-if="customThemeComposerOpen" class="custom-theme-composer" @submit.prevent="confirmCreateCustomTheme"><input v-model="newCustomThemeName" aria-label="新主题名称" placeholder="输入主题名称" autofocus/><button type="submit" class="primary">创建草稿</button><button type="button" @click="cancelCreateCustomTheme">取消</button></form><article v-for="custom in customThemeDrafts" :key="custom.id" class="custom-theme-card"><input v-model="custom.name" aria-label="主题名称"/><div class="token-colors"><label v-for="field in ['scene','sceneLayer','panel','card','hover','accent','accentAlt','text','muted','border','danger','shadow']" :key="field">{{field}}<input v-model="custom.tokens[field as keyof typeof custom.tokens]" type="color" @input="transientSettingsPreview=custom.id"/></label></div><div class="custom-theme-actions"><button class="primary" @click="saveCustomTheme(custom)">保存</button><button @click="applyCustomTheme(custom)">保存并应用</button><button title="以当前主题创建一个可独立编辑的新副本" @click="copyCustomTheme(custom)">复制为新主题</button><button @click="chooseBackground(custom)">{{custom.backgroundImage?'替换背景':'选择背景'}}</button><button v-if="custom.backgroundImage" @click="custom.backgroundImage=null;transientSettingsPreview=custom.id;customThemeNotice='背景已移除，请点击保存。'">移除背景</button><button class="danger" @click="deleteCustomTheme(custom)">删除</button></div></article></fieldset></template
           ><template v-else-if="settingsSection === 'projects'"
             ><h2>全项目默认设置</h2>
             <label
@@ -1571,22 +1834,7 @@ onMounted(load);
                   savePreferences({ projectDefaults: settings.projectDefaults })
                 "
               />任务列表显示子项目目录</label
-            ><label
-              >默认项目主题<select
-                v-model="settings.projectDefaults.theme"
-                @change="
-                  savePreferences({ projectDefaults: settings.projectDefaults })
-                "
-              >
-                <option
-                  v-for="theme in themes"
-                  :key="theme.id"
-                  :value="theme.id"
-                >
-                  {{ theme.name }}
-                </option>
-                <option v-for="custom in settings.customThemes" :key="custom.id" :value="custom.id">{{custom.name}}</option>
-              </select></label
+            ><label class="inherited-theme-note">默认项目主题 <span>跟随“外观”中的全局主题（当前：{{ globalThemeName }}）</span></label
             ></template
           ><template v-else
             ><h2>归档项目</h2>

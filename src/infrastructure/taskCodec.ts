@@ -1,6 +1,6 @@
 import matter from 'gray-matter'
 import type { Task } from '../domain/task.js'
-const known = new Set(['schema','id','revision','title','projectId','listId','status','favorite','important','myDay','parentId','kind','due','reminder','repeat','assigneeIds','tags','attachments','createdAt','updatedAt','completedAt'])
+const known = new Set(['schema','id','revision','title','projectId','listId','status','favorite','important','myDay','parentId','order','kind','due','reminder','repeat','assigneeIds','tags','attachments','createdAt','updatedAt','completedAt'])
 export function parseTask(source: string): Task {
   const { data, content } = matter(source)
   if (data.schema !== 'bearai.todo/task@1'&&data.schema!=='bearai.todo/task@2') throw new Error('不支持的任务格式')
